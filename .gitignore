@@ -1,0 +1,9 @@
+.venv/
+node_modules/
+artifacts/*
+!artifacts/.gitkeep
+__pycache__/
+*.py[cod]
+*.log
+.runtime/
+.tools/
