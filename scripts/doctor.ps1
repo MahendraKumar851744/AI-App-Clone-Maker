@@ -28,11 +28,23 @@ try {
     Write-Host "[ OK ] Android SDK - $sdk" -ForegroundColor Green
     foreach ($tool in @(
         "platform-tools\adb.exe",
-        "emulator\emulator.exe",
-        "cmdline-tools\latest\bin\sdkmanager.bat"
+        "emulator\emulator.exe"
     )) {
         [void](Get-SdkTool $tool)
         Write-Host "[ OK ] $tool" -ForegroundColor Green
+    }
+    $sdkManagerCandidates = @(
+        (Join-Path $sdk "cmdline-tools\latest\bin\sdkmanager.bat"),
+        (Join-Path $sdk "tools\bin\sdkmanager.bat")
+    )
+    $sdkManager = $sdkManagerCandidates |
+        Where-Object { Test-Path -LiteralPath $_ } |
+        Select-Object -First 1
+    if ($sdkManager) {
+        Write-Host "[ OK ] sdkmanager - $sdkManager" -ForegroundColor Green
+    } else {
+        Write-Host "[FAIL] sdkmanager was not found." -ForegroundColor Red
+        $failures++
     }
     $emulator = Get-SdkTool "emulator\emulator.exe"
     if ((& $emulator -list-avds) -contains $script:AvdName) {
@@ -63,6 +75,15 @@ if (Test-Path "_Message_1.39_APKPure.apk") {
 } else {
     Write-Host "[FAIL] APK file is missing." -ForegroundColor Red
     $failures++
+}
+if (Test-Path ".venv\Scripts\python.exe") {
+    & ".\.venv\Scripts\python.exe" -c "from backend import create_app; assert create_app().test_client().get('/api/v1/health').status_code == 200"
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "[ OK ] Flask backend import and health route" -ForegroundColor Green
+    } else {
+        Write-Host "[FAIL] Flask backend health check failed." -ForegroundColor Red
+        $failures++
+    }
 }
 
 if ($failures -gt 0) {
