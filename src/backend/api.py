@@ -6,9 +6,14 @@ from backend.core.contracts import JsonObject, require_object
 from backend.core.executor import ModuleExecutor, RunStore
 from backend.core.registry import ModuleRegistry
 from backend.errors import RequestValidationError
-from backend.errors import ResourceConflictError, ResourceNotFoundError
+from backend.errors import (
+    ExternalServiceError,
+    ResourceConflictError,
+    ResourceNotFoundError,
+)
 from backend.exploration.actions import (
     ActionValidationError,
+    AppLaunchError,
     ExplorationActionManager,
     ExplorationRunNotFoundError,
     ScreenNotFoundError,
@@ -134,3 +139,14 @@ def execute_exploration_action(run_id: str):
             details=error.details,
         ) from error
     return jsonify({"result": result})
+
+
+@api.post("/explorations/open")
+def open_installed_application():
+    try:
+        result = action_manager().launch(json_body())
+    except ActionValidationError as error:
+        raise RequestValidationError(str(error)) from error
+    except AppLaunchError as error:
+        raise ExternalServiceError(str(error)) from error
+    return jsonify({"result": result}), 201

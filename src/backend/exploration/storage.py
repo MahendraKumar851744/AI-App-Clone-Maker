@@ -74,6 +74,11 @@ class ExplorationStore:
             {"run_id": self.run_id, "status": "running", "screens_discovered": 0},
         )
         self._initialize_database()
+        source_reference = (
+            str(apk.path)
+            if apk.path is not None
+            else f"package:{apk.package or 'unknown'}"
+        )
         with self._connect() as database:
             database.execute(
                 """
@@ -86,13 +91,19 @@ class ExplorationStore:
                     self.run_id,
                     "running",
                     started_at,
-                    str(apk.path),
+                    source_reference,
                     apk.sha256,
                     json.dumps(apk.to_dict(), default=str),
                     json.dumps(session.to_dict(), default=str),
                 ),
             )
-        self.event("run_started", {"apk_path": str(apk.path)})
+        self.event(
+            "run_started",
+            {
+                "apk_path": str(apk.path) if apk.path is not None else None,
+                "package_id": apk.package,
+            },
+        )
         return self.run_id
 
     def attach_run(self, run_id: str) -> None:

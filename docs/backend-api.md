@@ -35,12 +35,72 @@ POST /api/v1/modules/{module_id}/execute
 POST /api/v1/workflows/execute
 GET  /api/v1/runs
 GET  /api/v1/runs/{run_id}
+POST /api/v1/explorations/open
 POST /api/v1/explorations/{run_id}/actions
 ```
 
 Module definitions and run history are currently process-local. Persistence,
 authentication, authorization, and multi-worker coordination belong in later
 infrastructure layers.
+
+## Open an installed Android application
+
+This endpoint bootstraps an exploration from only an Android package ID:
+
+```http
+POST /api/v1/explorations/open
+Content-Type: application/json
+```
+
+```json
+{
+  "package_id": "com.example.app"
+}
+```
+
+The package must already be installed on the selected Appium device. The
+endpoint does not install an APK, clear application data, or reset the app. It:
+
+1. Starts an Appium UiAutomator2 session without an APK capability.
+2. Activates the requested package.
+3. Waits for the UI hierarchy to stabilize.
+4. Captures and persists the canonical screen evidence.
+5. Keeps the run-scoped Appium session alive for subsequent actions.
+
+Successful response (`201 Created`):
+
+```json
+{
+  "result": {
+    "contract": "appium.launch_result",
+    "schema_version": 1,
+    "status": "opened",
+    "package_id": "com.example.app",
+    "run_id": "c709922b-cce1-4b9c-986d-5eac25f3caad",
+    "screen_id": "screen_819fbab46fa2cd6d",
+    "screen_ref": {
+      "run_id": "c709922b-cce1-4b9c-986d-5eac25f3caad",
+      "screen_id": "screen_819fbab46fa2cd6d"
+    },
+    "screen": {
+      "fingerprint": "full-screen-fingerprint",
+      "package": "com.example.app",
+      "activity": ".MainActivity",
+      "stable": true,
+      "element_count": 18,
+      "appium_result": "artifacts/explorations/.../appium-result.json",
+      "viewer": "artifacts/explorations/.../appium_screen_content.html"
+    },
+    "actions_endpoint": "/api/v1/explorations/c709922b-cce1-4b9c-986d-5eac25f3caad/actions"
+  }
+}
+```
+
+Use `screen_ref.run_id` in the action endpoint path and
+`screen_ref.screen_id` as the action request's `screen_id`. An invalid package
+ID returns `400 validation_error`. Appium connection failures, missing
+installed packages, or activation failures return `502
+external_service_failed`.
 
 ## Monitored exploration actions
 

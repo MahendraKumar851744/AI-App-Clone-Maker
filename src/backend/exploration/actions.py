@@ -94,6 +94,9 @@ ELEMENT_ACTIONS = {
 }
 
 RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+PACKAGE_ID_PATTERN = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$"
+)
 
 
 class ActionError(RuntimeError):
@@ -101,6 +104,10 @@ class ActionError(RuntimeError):
 
 
 class ActionValidationError(ActionError):
+    pass
+
+
+class AppLaunchError(ActionError):
     pass
 
 
@@ -271,6 +278,70 @@ class ExplorationActionManager:
             managed.store.save_action_result(result)
             return result
 
+    def launch(self, payload: JsonObject) -> JsonObject:
+        package_id = payload.get("package_id")
+        if not isinstance(package_id, str) or not PACKAGE_ID_PATTERN.fullmatch(
+            package_id
+        ):
+            raise ActionValidationError(
+                "'package_id' must be a valid Android application ID, "
+                "for example 'com.example.app'."
+            )
+        unexpected = sorted(set(payload) - {"package_id"})
+        if unexpected:
+            raise ActionValidationError(
+                f"Unsupported launch fields: {', '.join(unexpected)}."
+            )
+
+        explorer = self.explorer_factory({})
+        store = ExplorationStore(self.output_root)
+        try:
+            apk, session = explorer.start_package(package_id)
+            run_id = store.create_run(apk, session)
+            capture = explorer.observe()
+            captured = store.save_screen(capture)
+            managed = ManagedExploration(explorer=explorer, store=store)
+            with self._manager_lock:
+                self._sessions[run_id] = managed
+            return {
+                "contract": "appium.launch_result",
+                "schema_version": 1,
+                "status": "opened",
+                "package_id": package_id,
+                "run_id": run_id,
+                "screen_id": captured.screen_id,
+                "screen_ref": {
+                    "run_id": run_id,
+                    "screen_id": captured.screen_id,
+                },
+                "screen": {
+                    "fingerprint": capture.observation.get("fingerprint"),
+                    "package": capture.observation.get("screen", {}).get(
+                        "package"
+                    ),
+                    "activity": capture.observation.get("screen", {}).get(
+                        "activity"
+                    ),
+                    "stable": capture.observation.get("stability", {}).get(
+                        "stable"
+                    ),
+                    "element_count": captured.element_count,
+                    "appium_result": str(captured.document_path),
+                    "viewer": str(captured.viewer_path),
+                },
+                "actions_endpoint": (
+                    f"/api/v1/explorations/{run_id}/actions"
+                ),
+            }
+        except ActionValidationError:
+            raise
+        except Exception as error:
+            store.fail(error)
+            explorer.close()
+            raise AppLaunchError(
+                f"Could not open installed package '{package_id}': {error}"
+            ) from error
+
     def supported_actions(self) -> list[str]:
         return list(SUPPORTED_ACTIONS)
 
@@ -297,7 +368,13 @@ class ExplorationActionManager:
             except FileNotFoundError as error:
                 raise ExplorationRunNotFoundError(str(error)) from error
             explorer = self.explorer_factory(expected)
-            explorer.start(str(expected.get("apk", {}).get("path") or ""))
+            capture_input = expected.get("input", {})
+            if capture_input.get("launch_source") == "installed_package":
+                explorer.start_package(
+                    str(capture_input.get("package_id") or "")
+                )
+            else:
+                explorer.start(str(expected.get("apk", {}).get("path") or ""))
             managed = ManagedExploration(explorer=explorer, store=store)
             self._sessions[run_id] = managed
             return managed

@@ -18,6 +18,26 @@ Start a compatible emulator and Appium, then provide the APK path:
 Use `.\scripts\run-all.ps1` to start the project emulator and Appium
 automatically before capture.
 
+## Open an already-installed package through the API
+
+With the backend and Appium running, create a live exploration run from an
+installed Android package:
+
+```powershell
+$opened = Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:5000/api/v1/explorations/open `
+  -ContentType application/json `
+  -Body '{"package_id":"com.example.app"}'
+
+$opened.result.screen_ref
+```
+
+The response contains the durable `run_id` and `screen_id` pointer, canonical
+capture paths, observed package/activity, stability, and the URL template for
+performing subsequent actions. This path does not install an APK or clear
+application data.
+
 ## Stored evidence
 
 Each run is isolated under `artifacts/explorations/{run_id}/`:

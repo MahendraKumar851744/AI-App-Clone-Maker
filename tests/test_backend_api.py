@@ -45,6 +45,20 @@ class FakeExplorationActionManager:
             "request": payload,
         }
 
+    def launch(self, payload):
+        self.calls.append(("launch", payload))
+        return {
+            "contract": "appium.launch_result",
+            "status": "opened",
+            "package_id": payload["package_id"],
+            "run_id": "run-new",
+            "screen_id": "screen-new",
+            "screen_ref": {
+                "run_id": "run-new",
+                "screen_id": "screen-new",
+            },
+        }
+
 
 class BackendAPITests(unittest.TestCase):
     def setUp(self):
@@ -268,6 +282,39 @@ class BackendAPITests(unittest.TestCase):
             "succeeded_screen_changed",
         )
         self.assertEqual(manager.calls, [("run_123", payload)])
+
+    def test_open_installed_application_returns_screen_pointer(self):
+        manager = FakeExplorationActionManager()
+        self.app.extensions["exploration_action_manager"] = manager
+
+        response = self.client.post(
+            "/api/v1/explorations/open",
+            json={"package_id": "com.example.app"},
+        )
+
+        self.assertEqual(response.status_code, 201, response.get_json())
+        result = response.get_json()["result"]
+        self.assertEqual(result["status"], "opened")
+        self.assertEqual(
+            result["screen_ref"],
+            {"run_id": "run-new", "screen_id": "screen-new"},
+        )
+        self.assertEqual(
+            manager.calls,
+            [("launch", {"package_id": "com.example.app"})],
+        )
+
+    def test_open_installed_application_rejects_invalid_package_id(self):
+        response = self.client.post(
+            "/api/v1/explorations/open",
+            json={"package_id": "not a package"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.get_json()["error"]["code"],
+            "validation_error",
+        )
 
 
 if __name__ == "__main__":

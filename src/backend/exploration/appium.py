@@ -681,11 +681,36 @@ class AppiumExplorer:
         self.driver: Any | None = None
         self.apk: ApkMetadata | None = None
         self.session: SessionInfo | None = None
+        self.launch_source = "apk"
 
     def start(self, apk_path: str | Path) -> tuple[ApkMetadata, SessionInfo]:
+        self.launch_source = "apk"
         self.apk = self.inspector.inspect(apk_path)
         self._require_server()
         capabilities = self._capabilities(self.apk)
+        self._create_session(capabilities)
+        self._wait_until_stable()
+        return self.apk, self.session
+
+    def start_package(self, package_id: str) -> tuple[ApkMetadata, SessionInfo]:
+        """Start an Appium session and activate an already-installed package."""
+        self.launch_source = "installed_package"
+        self.apk = ApkMetadata(
+            path=None,
+            sha256="",
+            size_bytes=0,
+            package=package_id,
+            inspector="package_id",
+            warnings=("APK metadata is unavailable for package-only launch.",),
+        )
+        self._require_server()
+        capabilities = self._package_capabilities(package_id)
+        self._create_session(capabilities)
+        self.driver.activate_app(package_id)
+        self._wait_until_stable()
+        return self.apk, self.session
+
+    def _create_session(self, capabilities: JsonObject) -> None:
         self.driver = (
             self.driver_factory(self.server_url, capabilities)
             if self.driver_factory
@@ -701,8 +726,6 @@ class AppiumExplorer:
             udid=self.udid or actual_capabilities.get("udid"),
             capabilities=actual_capabilities,
         )
-        self._wait_until_stable()
-        return self.apk, self.session
 
     def observe(self) -> ScreenCapture:
         if self.driver is None or self.apk is None or self.session is None:
@@ -795,7 +818,11 @@ class AppiumExplorer:
             "fingerprint": fingerprint,
             "captured_at": captured_at,
             "input": {
-                "apk_path": str(self.apk.path),
+                "launch_source": self.launch_source,
+                "apk_path": (
+                    str(self.apk.path) if self.apk.path is not None else None
+                ),
+                "package_id": self.apk.package,
                 "server_url": self.server_url,
                 "device_name": self.device_name,
                 "udid": active_udid,
@@ -863,11 +890,32 @@ class AppiumExplorer:
             raise RuntimeError(f"Appium reported that it is not ready: {payload}")
 
     def _capabilities(self, apk: ApkMetadata) -> JsonObject:
+        capabilities = self._base_capabilities()
+        if apk.path is None:
+            raise RuntimeError("APK path is required for APK-based launch.")
+        capabilities["appium:app"] = str(apk.path)
+        if apk.package:
+            capabilities["appium:appPackage"] = apk.package
+        if apk.launch_activity:
+            capabilities["appium:appActivity"] = apk.launch_activity
+        return capabilities
+
+    def _package_capabilities(self, package_id: str) -> JsonObject:
+        capabilities = self._base_capabilities()
+        capabilities.update(
+            {
+                "appium:appPackage": package_id,
+                "appium:autoLaunch": False,
+                "appium:noReset": True,
+            }
+        )
+        return capabilities
+
+    def _base_capabilities(self) -> JsonObject:
         capabilities: JsonObject = {
             "platformName": "Android",
             "appium:automationName": "UiAutomator2",
             "appium:deviceName": self.device_name,
-            "appium:app": str(apk.path),
             "appium:autoGrantPermissions": False,
             "appium:noReset": self.keep_data,
             "appium:fullReset": False,
@@ -880,10 +928,6 @@ class AppiumExplorer:
             "appium:appWaitDuration": 120_000,
             "appium:appWaitActivity": "*",
         }
-        if apk.package:
-            capabilities["appium:appPackage"] = apk.package
-        if apk.launch_activity:
-            capabilities["appium:appActivity"] = apk.launch_activity
         if self.udid:
             capabilities["appium:udid"] = self.udid
         return capabilities

@@ -77,6 +77,7 @@ POST   /api/v1/modules/{module_id}/execute
 POST   /api/v1/workflows/execute
 GET    /api/v1/runs
 GET    /api/v1/runs/{run_id}
+POST   /api/v1/explorations/open
 POST   /api/v1/explorations/{run_id}/actions
 ```
 

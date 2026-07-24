@@ -8,7 +8,11 @@ from pathlib import Path
 
 from PIL import Image
 
-from backend.exploration.actions import ActionExecutor, ActionRequest
+from backend.exploration.actions import (
+    ActionExecutor,
+    ActionRequest,
+    ExplorationActionManager,
+)
 from backend.exploration.appium import AdbSystemProbe, ApkInspector, AppiumExplorer
 from backend.exploration.llm_context import build_llm_context, load_llm_context
 from backend.exploration.models import ApkMetadata, ScreenCapture, SessionInfo
@@ -71,6 +75,7 @@ class FakeDriver:
         self.current_package = type(self).current_package
         self.current_activity = type(self).current_activity
         self.changed = False
+        self.activated_packages = []
 
     def get_screenshot_as_png(self):
         stream = BytesIO()
@@ -91,6 +96,9 @@ class FakeDriver:
         }:
             return FakeElement(self, value)
         raise RuntimeError(f"not found with {strategy}: {value}")
+
+    def activate_app(self, package_id):
+        self.activated_packages.append(package_id)
 
     def quit(self):
         self.closed = True
@@ -303,6 +311,57 @@ class ApkInspectorTests(unittest.TestCase):
 
 
 class MilestoneOneTests(unittest.TestCase):
+    def test_package_launch_creates_run_and_returns_reusable_screen_pointer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            driver = FakeDriver()
+            captured_capabilities = {}
+            explorer = AppiumExplorer(
+                keep_data=True,
+                stability_timeout=0.2,
+                stability_interval=0.001,
+                system_probe=FakeSystemProbe(),
+                driver_factory=lambda _url, capabilities: (
+                    captured_capabilities.update(capabilities) or driver
+                ),
+            )
+            explorer._require_server = lambda: None
+            manager = ExplorationActionManager(
+                Path(directory) / "artifacts",
+                explorer_factory=lambda _document: explorer,
+            )
+            try:
+                result = manager.launch({"package_id": "example.app"})
+
+                self.assertEqual(result["status"], "opened")
+                self.assertEqual(result["package_id"], "example.app")
+                self.assertEqual(
+                    result["screen_ref"],
+                    {
+                        "run_id": result["run_id"],
+                        "screen_id": result["screen_id"],
+                    },
+                )
+                self.assertEqual(driver.activated_packages, ["example.app"])
+                self.assertNotIn("appium:app", captured_capabilities)
+                self.assertFalse(captured_capabilities["appium:autoLaunch"])
+                self.assertTrue(captured_capabilities["appium:noReset"])
+                document = json.loads(
+                    Path(result["screen"]["appium_result"]).read_text(
+                        encoding="utf-8"
+                    )
+                )
+                self.assertEqual(
+                    document["input"]["launch_source"],
+                    "installed_package",
+                )
+                self.assertEqual(
+                    document["input"]["package_id"],
+                    "example.app",
+                )
+                self.assertIn(result["run_id"], manager._sessions)
+            finally:
+                manager.close_all()
+
     def test_appium_observation_captures_app_and_system_state(self):
         apk = ApkMetadata(
             path=Path("sample.apk"),

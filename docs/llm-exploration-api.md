@@ -5,9 +5,13 @@
 This document defines the boundary between Android screen capture, LLM
 reasoning, and monitored Appium action execution.
 
-The intended workflow has three stages:
+The intended workflow starts by opening an installed package and then has three
+screen-processing stages:
 
 ```text
+Bootstrap API opens installed package and returns screen_ref
+                      |
+                      v
 Step 1: Appium captures complete screen evidence
                       |
                       v
@@ -23,18 +27,21 @@ Action API executes and monitors that action
 New Step 1 screen capture and transition record
 ```
 
-The two API operations covered here are:
+The API operations covered here are:
 
-1. Convert one canonical `appium-result.json` screen into loss-safe,
+1. Open an installed Android package and return the first captured-screen
+   pointer.
+2. Convert one canonical `appium-result.json` screen into loss-safe,
    LLM-friendly context.
-2. Execute any supported action against a captured screen and return a monitored
+3. Execute any supported action against a captured screen and return a monitored
    before/after result.
 
 ## 2. Current implementation status
 
 | Capability                                       | Status                                            |
 | ------------------------------------------------ | ------------------------------------------------- |
-| Canonical`appium-result.json` capture          | Implemented and real-device tested                |
+| Installed-package launch and screen pointer API | Implemented                                       |
+| Canonical `appium-result.json` capture           | Implemented and real-device tested                |
 | JSON-to-LLM Markdown transformer                 | Implemented and tested as Python/CLI              |
 | HTTP context-export endpoint                     | Proposed in this document; not implemented        |
 | Generic monitored action HTTP endpoint           | Implemented                                       |
@@ -50,6 +57,68 @@ The two API operations covered here are:
 
 The receiving LLM must not assume that a proposed endpoint or unvalidated action
 is already production-ready.
+
+## Bootstrap API: open an installed package
+
+```http
+POST /api/v1/explorations/open
+Content-Type: application/json
+```
+
+Request:
+
+```json
+{
+  "package_id": "com.example.app"
+}
+```
+
+`package_id` is the Android application ID of an app that is already installed
+on the Appium device. The operation does not accept an APK path, install an APK,
+clear application data, or reset the application.
+
+The synchronous operation creates a UiAutomator2 session, activates the
+package, waits for hierarchy stability, captures the complete canonical screen,
+persists a new exploration run, and retains the session for the action API.
+
+Response (`201 Created`):
+
+```json
+{
+  "result": {
+    "contract": "appium.launch_result",
+    "schema_version": 1,
+    "status": "opened",
+    "package_id": "com.example.app",
+    "run_id": "c709922b-cce1-4b9c-986d-5eac25f3caad",
+    "screen_id": "screen_819fbab46fa2cd6d",
+    "screen_ref": {
+      "run_id": "c709922b-cce1-4b9c-986d-5eac25f3caad",
+      "screen_id": "screen_819fbab46fa2cd6d"
+    },
+    "screen": {
+      "fingerprint": "full-screen-fingerprint",
+      "package": "com.example.app",
+      "activity": ".MainActivity",
+      "stable": true,
+      "element_count": 18,
+      "appium_result": "artifacts/explorations/.../appium-result.json",
+      "viewer": "artifacts/explorations/.../appium_screen_content.html"
+    },
+    "actions_endpoint": "/api/v1/explorations/c709922b-cce1-4b9c-986d-5eac25f3caad/actions"
+  }
+}
+```
+
+The LLM or orchestrator must retain `screen_ref`. Its `run_id` selects the live
+session and its `screen_id` is the exact evidence pointer required by the next
+action request.
+
+Errors:
+
+- `400 validation_error`: missing, malformed, or unsupported request fields.
+- `502 external_service_failed`: Appium is unavailable, the package is not
+  installed, activation failed, or initial capture failed.
 
 ## 3. Terminology
 

@@ -10,7 +10,7 @@ JsonObject = dict[str, Any]
 
 @dataclass(frozen=True)
 class ApkMetadata:
-    path: Path
+    path: Path | None
     sha256: str
     size_bytes: int
     package: str | None = None
@@ -26,7 +26,7 @@ class ApkMetadata:
 
     def to_dict(self) -> JsonObject:
         data = asdict(self)
-        data["path"] = str(self.path)
+        data["path"] = str(self.path) if self.path is not None else None
         data["native_abis"] = list(self.native_abis)
         data["warnings"] = list(self.warnings)
         return data
