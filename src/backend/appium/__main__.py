@@ -8,13 +8,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ui_discovery.parser import parse_hierarchy, summarize
-from ui_discovery.report import write_csv, write_html, write_json
+from backend.appium.parser import parse_hierarchy, summarize
+from backend.appium.report import write_csv, write_html, write_json
 
 
-ROOT = Path(__file__).resolve().parent
-DEFAULT_APK = ROOT / "_Message_1.39_APKPure.apk"
-DEFAULT_OUTPUT = ROOT / "artifacts" / "first_open"
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_APK = PROJECT_ROOT / "assets" / "apps" / "message.apk"
+DEFAULT_OUTPUT = PROJECT_ROOT / "artifacts" / "first_open"
 APP_PACKAGE = "message.chat.text.messaging.sms"
 APP_ACTIVITY = "message.chat.text.messaging.sms.launcher.activities.SetDefaultLauncherActivity"
 

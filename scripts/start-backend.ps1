@@ -5,13 +5,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$projectRoot = Split-Path -Parent $PSScriptRoot
-Set-Location $projectRoot
+. (Join-Path $PSScriptRoot "common.ps1")
+Set-Location $script:ProjectRoot
 
-if (-not (Test-Path ".venv\Scripts\python.exe")) {
+if (-not (Test-Path $script:Python)) {
     throw "Python environment is missing. Run .\scripts\setup.ps1 first."
 }
 
 $env:BACKEND_HOST = $HostAddress
 $env:BACKEND_PORT = "$Port"
-& ".\.venv\Scripts\python.exe" server.py
+& $script:Python -m backend

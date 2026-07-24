@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-app-clone-maker"
+version = "0.2.0"
+description = "Modular Flask execution backend with Appium automation support"
+requires-python = ">=3.10"
+dependencies = [
+    "Appium-Python-Client==5.3.1",
+    "Flask==3.1.3",
+    "requests==2.34.2",
+]
+
+[project.scripts]
+clone-maker = "backend.__main__:main"
+clone-maker-discover = "backend.appium.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

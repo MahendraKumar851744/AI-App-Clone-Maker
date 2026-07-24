@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
 Set-Location $script:ProjectRoot
 
-if (-not (Test-Path ".venv\Scripts\python.exe")) {
+if (-not (Test-Path $script:Python)) {
     throw "Project dependencies are missing. Run .\scripts\bootstrap-windows.ps1 first."
 }
 
@@ -20,11 +20,11 @@ if (-not $serial) {
 
 & (Join-Path $PSScriptRoot "start-appium-background.ps1")
 
-$arguments = @("discover_ui.py", "--udid", $serial, "--wait", $Wait)
+$arguments = @("-m", "backend.appium", "--udid", $serial, "--wait", $Wait)
 if ($KeepData) {
     $arguments += "--keep-data"
 }
-& ".\.venv\Scripts\python.exe" @arguments
+& $script:Python @arguments
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

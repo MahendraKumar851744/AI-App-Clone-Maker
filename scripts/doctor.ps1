@@ -58,26 +58,33 @@ try {
     $failures++
 }
 
-if (Test-Path ".venv\Scripts\python.exe") {
+if (Test-Path $script:Python) {
     Write-Host "[ OK ] Python virtual environment" -ForegroundColor Green
 } else {
     Write-Host "[FAIL] Python virtual environment is missing." -ForegroundColor Red
     $failures++
 }
-if (Test-Path "node_modules\appium\build\lib\main.js") {
+if (Test-Path $script:AppiumEntryPoint) {
     Write-Host "[ OK ] Local Appium server" -ForegroundColor Green
 } else {
     Write-Host "[FAIL] Local Appium server is missing." -ForegroundColor Red
     $failures++
 }
-if (Test-Path "_Message_1.39_APKPure.apk") {
+$driverPackage = Join-Path $script:AppiumRoot "node_modules\appium-uiautomator2-driver\package.json"
+if (Test-Path $driverPackage) {
+    Write-Host "[ OK ] UiAutomator2 Appium driver" -ForegroundColor Green
+} else {
+    Write-Host "[FAIL] UiAutomator2 Appium driver is missing." -ForegroundColor Red
+    $failures++
+}
+if (Test-Path $script:Apk) {
     Write-Host "[ OK ] APK file" -ForegroundColor Green
 } else {
     Write-Host "[FAIL] APK file is missing." -ForegroundColor Red
     $failures++
 }
-if (Test-Path ".venv\Scripts\python.exe") {
-    & ".\.venv\Scripts\python.exe" -c "from backend import create_app; assert create_app().test_client().get('/api/v1/health').status_code == 200"
+if (Test-Path $script:Python) {
+    & $script:Python -c "from backend import create_app; assert create_app().test_client().get('/api/v1/health').status_code == 200"
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[ OK ] Flask backend import and health route" -ForegroundColor Green
     } else {

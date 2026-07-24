@@ -4,9 +4,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$projectRoot = Split-Path -Parent $PSScriptRoot
-Set-Location $projectRoot
 . (Join-Path $PSScriptRoot "common.ps1")
+Set-Location $script:ProjectRoot
 
 if (-not $Udid) {
     $Udid = Get-CompatibleDevice
@@ -16,12 +15,12 @@ if (-not $Udid) {
     Write-Host "Selected ARMv7-compatible device: $Udid"
 }
 
-$arguments = @("discover_ui.py", "--wait", $Wait)
+$arguments = @("-m", "backend.appium", "--wait", $Wait)
 $arguments += @("--udid", $Udid)
 
-& ".\.venv\Scripts\python.exe" @arguments
+& $script:Python @arguments
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-Write-Host "Report: $projectRoot\artifacts\first_open\report.html"
+Write-Host "Report: $script:ProjectRoot\artifacts\first_open\report.html"

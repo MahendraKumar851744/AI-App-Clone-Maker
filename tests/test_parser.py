@@ -1,6 +1,6 @@
 import unittest
 
-from ui_discovery.parser import parse_hierarchy, summarize
+from backend.appium.parser import parse_hierarchy, summarize
 
 
 SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>

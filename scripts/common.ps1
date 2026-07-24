@@ -1,6 +1,12 @@
 $script:ProjectRoot = Split-Path -Parent $PSScriptRoot
 $script:AvdName = "Appium_Arm32_API30"
 $script:RequiredAbi = "armeabi-v7a"
+$script:RuntimeRoot = Join-Path $script:ProjectRoot ".runtime"
+$script:Python = Join-Path $script:RuntimeRoot "python\Scripts\python.exe"
+$script:AppiumRoot = Join-Path $script:ProjectRoot "tooling\appium"
+$script:AppiumEntryPoint = Join-Path $script:AppiumRoot "node_modules\appium\build\lib\main.js"
+$script:Apk = Join-Path $script:ProjectRoot "assets\apps\message.apk"
+$env:PYTHONDONTWRITEBYTECODE = "1"
 
 function Get-AndroidSdkRoot {
     $candidates = @(

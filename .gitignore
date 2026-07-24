@@ -1,8 +1,10 @@
 .venv/
 node_modules/
+tooling/appium/node_modules/
 artifacts/*
 !artifacts/.gitkeep
 __pycache__/
+*.egg-info/
 *.py[cod]
 *.log
 .runtime/

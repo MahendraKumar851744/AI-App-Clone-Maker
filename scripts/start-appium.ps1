@@ -2,6 +2,9 @@
 param()
 
 $ErrorActionPreference = "Stop"
-$projectRoot = Split-Path -Parent $PSScriptRoot
-Set-Location $projectRoot
-& npx.cmd appium --address 127.0.0.1 --port 4723 --base-path /
+. (Join-Path $PSScriptRoot "common.ps1")
+Set-Location $script:ProjectRoot
+if (-not (Test-Path $script:AppiumEntryPoint)) {
+    throw "Local Appium is not installed. Run .\scripts\setup.ps1 first."
+}
+& node.exe $script:AppiumEntryPoint --address 127.0.0.1 --port 4723 --base-path /

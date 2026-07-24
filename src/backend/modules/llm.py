@@ -11,7 +11,7 @@ from backend.core.contracts import (
 )
 from backend.core.templating import TemplateRenderer
 from backend.errors import ModuleExecutionError, RequestValidationError
-from backend.services.llm import LLMProviderRegistry
+from backend.modules.llm_provider import LLMProviderRegistry
 
 
 class LLMModule(BaseModule):

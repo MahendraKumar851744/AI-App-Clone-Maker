@@ -2,8 +2,8 @@
 param()
 
 $ErrorActionPreference = "Stop"
-$projectRoot = Split-Path -Parent $PSScriptRoot
-Set-Location $projectRoot
+. (Join-Path $PSScriptRoot "common.ps1")
+Set-Location $script:ProjectRoot
 
 $pythonCommand = Get-Command python.exe -ErrorAction SilentlyContinue
 if (-not $pythonCommand) {
@@ -16,22 +16,32 @@ if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
     throw "npm.cmd was not found. Reinstall the Node.js LTS package."
 }
 
-if (-not (Test-Path ".venv\Scripts\python.exe")) {
-    & $pythonCommand.Source -m venv .venv
+if (-not (Test-Path $script:Python)) {
+    New-Item -ItemType Directory -Path $script:RuntimeRoot -Force | Out-Null
+    & $pythonCommand.Source -m venv (Join-Path $script:RuntimeRoot "python")
 }
 
-& ".\.venv\Scripts\python.exe" -m pip install --upgrade pip
-& ".\.venv\Scripts\python.exe" -m pip install -r requirements.txt
-
-if (Test-Path "package-lock.json") {
-    & npm.cmd ci
-} else {
-    & npm.cmd install
+& $script:Python -m ensurepip --upgrade
+& $script:Python -m pip install --upgrade pip
+& $script:Python -m pip install --editable .
+$eggInfo = Join-Path $script:ProjectRoot "src\ai_app_clone_maker.egg-info"
+if (Test-Path -LiteralPath $eggInfo) {
+    Remove-Item -LiteralPath $eggInfo -Recurse -Force
 }
 
-$installedDrivers = & npx.cmd appium driver list --installed 2>&1
-if ($installedDrivers -notmatch "uiautomator2") {
-    & npx.cmd appium driver install uiautomator2
+Push-Location $script:AppiumRoot
+try {
+    if (Test-Path "package-lock.json") {
+        & npm.cmd ci
+    } else {
+        & npm.cmd install
+    }
+
+    if (-not (Test-Path "node_modules\appium-uiautomator2-driver\package.json")) {
+        throw "The pinned UiAutomator2 Appium driver was not installed."
+    }
+} finally {
+    Pop-Location
 }
 
 Write-Host ""

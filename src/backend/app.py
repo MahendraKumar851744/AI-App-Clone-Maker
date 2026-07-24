@@ -12,7 +12,7 @@ from backend.core.registry import ModuleRegistry
 from backend.core.templating import TemplateRenderer
 from backend.errors import PlatformError
 from backend.modules import AutomationModule, HTTPModule, LLMModule, LogicModule
-from backend.services.llm import (
+from backend.modules.llm_provider import (
     EchoLLMProvider,
     HTTPChatLLMProvider,
     LLMProviderRegistry,

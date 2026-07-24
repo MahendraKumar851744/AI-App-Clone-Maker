@@ -6,7 +6,7 @@ from backend.core.contracts import JsonObject, require_object
 from backend.core.executor import ModuleExecutor, RunStore
 from backend.core.registry import ModuleRegistry
 from backend.errors import RequestValidationError
-from backend.services.llm import LLMProviderRegistry
+from backend.modules.llm_provider import LLMProviderRegistry
 
 
 api = Blueprint("api", __name__, url_prefix="/api/v1")
