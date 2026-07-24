@@ -56,7 +56,7 @@ class RuntimeManager:
         project_root: str | Path,
         *,
         command_runner: Callable[
-            [list[str], Path, Callable[[str], None]], int
+            [list[str], Path, Callable[[str], None], int], int
         ]
         | None = None,
         status_provider: Callable[[], JsonObject] | None = None,
@@ -271,10 +271,19 @@ class RuntimeManager:
                 step=f"command_{index}_of_{len(commands)}",
                 progress=int(((index - 1) / len(commands)) * 100),
             )
+            script_name = Path(command[-1]).name.casefold()
+            timeout_seconds = (
+                3600
+                if script_name == "bootstrap-windows.ps1"
+                else 1800
+                if script_name == "setup.ps1"
+                else 180
+            )
             exit_code = self.command_runner(
                 command,
                 self.project_root,
                 lambda line: self._job_output(job, line),
+                timeout_seconds,
             )
             if exit_code != 0:
                 raise RuntimeError(
@@ -307,6 +316,7 @@ class RuntimeManager:
                 command,
                 self.project_root,
                 lambda line: self._job_output(job, line),
+                240 if index == 1 else 150,
             )
             if exit_code != 0:
                 raise RuntimeError(
@@ -461,6 +471,7 @@ class RuntimeManager:
         command: list[str],
         cwd: Path,
         output: Callable[[str], None],
+        timeout_seconds: int,
     ) -> int:
         creationflags = (
             subprocess.CREATE_NO_WINDOW
@@ -478,9 +489,51 @@ class RuntimeManager:
             creationflags=creationflags,
         )
         assert process.stdout is not None
-        for line in process.stdout:
-            output(line)
-        return process.wait()
+
+        def read_output() -> None:
+            try:
+                for line in process.stdout:
+                    output(line)
+            except (OSError, ValueError):
+                return
+
+        reader = threading.Thread(
+            target=read_output,
+            name=f"runtime-command-output-{process.pid}",
+            daemon=True,
+        )
+        reader.start()
+        try:
+            exit_code = process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            output(
+                f"Managed command exceeded its {timeout_seconds}-second timeout."
+            )
+            if os.name == "nt":
+                try:
+                    subprocess.run(
+                        [
+                            "taskkill.exe",
+                            "/PID",
+                            str(process.pid),
+                            "/T",
+                            "/F",
+                        ],
+                        capture_output=True,
+                        timeout=2,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired:
+                    output("Timed out while terminating the managed process tree.")
+            if process.poll() is None:
+                process.kill()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                output("Managed process did not acknowledge termination promptly.")
+            exit_code = 124
+        reader.join(timeout=0.5)
+        return exit_code
 
     def _android_status(
         self,

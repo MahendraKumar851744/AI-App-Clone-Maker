@@ -40,6 +40,9 @@ POST /api/v1/admin/runtime/provision
 POST /api/v1/admin/runtime/start
 POST /api/v1/admin/runtime/stop
 GET  /api/v1/admin/jobs/{job_id}
+POST /api/v1/apps/install
+GET  /api/v1/apps/{package_id}
+DELETE /api/v1/apps/{package_id}
 POST /api/v1/explorations/open
 POST /api/v1/explorations/context
 POST /api/v1/explorations/{run_id}/actions
@@ -67,6 +70,22 @@ POST /api/v1/admin/runtime/stop
 Full contracts, license behavior, job states, safety boundaries, and examples
 are documented in
 [runtime-provisioning.md](runtime-provisioning.md).
+
+## Android application management
+
+The loopback-only application API installs allow-listed APKs using explicit
+`clean`, `replace`, or `preserve` semantics, verifies the APK-derived package
+identity and installed version, and closes conflicting live exploration
+sessions before destructive replacement.
+
+```http
+POST   /api/v1/apps/install
+GET    /api/v1/apps/{package_id}
+DELETE /api/v1/apps/{package_id}
+```
+
+See [app-management-api.md](app-management-api.md) for complete requests,
+responses, safety boundaries, failure semantics, and device selection.
 
 ## Open an installed Android application
 

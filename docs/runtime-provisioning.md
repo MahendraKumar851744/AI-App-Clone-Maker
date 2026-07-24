@@ -140,6 +140,11 @@ result, and failure message. A non-terminal job discovered after backend
 restart is marked `failed` with step `interrupted`; commands are never silently
 replayed.
 
+Every managed command also has a server-owned hard timeout. Setup/bootstrap
+commands receive installation-sized limits, while emulator and Appium startup
+use shorter bounded limits. A timed-out process tree is terminated and the job
+finishes as `failed` instead of remaining indefinitely active.
+
 ## Start the runtime
 
 ```http
@@ -192,7 +197,7 @@ delete SDK files, AVD data, exploration evidence, or installed applications.
 GET  runtime/status
 POST runtime/provision -> poll job
 POST runtime/start     -> poll job
-POST apps/install      (next feature)
+POST apps/install      -> clean verified installation
 POST explorations/open
 POST explorations/context
 POST explorations/{run_id}/actions

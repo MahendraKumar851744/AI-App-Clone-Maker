@@ -352,6 +352,22 @@ class ExplorationActionManager:
         for managed in sessions:
             managed.explorer.close()
 
+    def close_package_sessions(self, package_id: str) -> list[str]:
+        """Close and forget every live exploration for one installed package."""
+        with self._manager_lock:
+            matches = [
+                (run_id, managed)
+                for run_id, managed in self._sessions.items()
+                if managed.explorer.apk is not None
+                and managed.explorer.apk.package == package_id
+            ]
+            for run_id, _managed in matches:
+                self._sessions.pop(run_id, None)
+        for _run_id, managed in matches:
+            with managed.lock:
+                managed.explorer.close()
+        return [run_id for run_id, _managed in matches]
+
     def _managed_session(
         self,
         run_id: str,

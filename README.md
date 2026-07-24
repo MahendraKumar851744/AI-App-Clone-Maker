@@ -82,6 +82,9 @@ POST   /api/v1/admin/runtime/provision
 POST   /api/v1/admin/runtime/start
 POST   /api/v1/admin/runtime/stop
 GET    /api/v1/admin/jobs/{job_id}
+POST   /api/v1/apps/install
+GET    /api/v1/apps/{package_id}
+DELETE /api/v1/apps/{package_id}
 POST   /api/v1/explorations/open
 POST   /api/v1/explorations/context
 POST   /api/v1/explorations/{run_id}/actions
@@ -93,6 +96,9 @@ examples.
 See [docs/runtime-provisioning.md](docs/runtime-provisioning.md) for the pinned
 Android/Appium environment status, provisioning jobs, and managed start/stop
 contracts.
+
+See [docs/app-management-api.md](docs/app-management-api.md) for allow-listed,
+package-verified clean/replace/preserve APK installation and uninstall.
 
 For the complete Screen → LLM Context → Monitored Action handoff contract,
 including schemas, every supported action, result classifications, persistence,

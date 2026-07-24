@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [int]$TimeoutSeconds = 45
+    [int]$TimeoutSeconds = 90
 )
 
 $ErrorActionPreference = "Stop"

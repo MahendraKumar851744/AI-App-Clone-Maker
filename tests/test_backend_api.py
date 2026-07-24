@@ -114,6 +114,36 @@ class FakeRuntimeManager:
         return self.job
 
 
+class FakeAndroidAppManager:
+    def __init__(self):
+        self.calls = []
+
+    def install(self, payload):
+        self.calls.append(("install", payload))
+        return {
+            "contract": "appium.app_install_result",
+            "status": "installed",
+            "package_id": payload["expected_package_id"],
+        }
+
+    def get(self, package_id, *, device_id=None):
+        self.calls.append(("get", package_id, device_id))
+        return {
+            "contract": "appium.installed_app",
+            "installed": True,
+            "package_id": package_id,
+            "device_id": device_id or "emulator-5554",
+        }
+
+    def uninstall(self, package_id, payload):
+        self.calls.append(("uninstall", package_id, payload))
+        return {
+            "contract": "appium.app_uninstall_result",
+            "status": "uninstalled",
+            "package_id": package_id,
+        }
+
+
 class BackendAPITests(unittest.TestCase):
     def setUp(self):
         self.http_session = FakeHTTPSession()
@@ -490,6 +520,48 @@ class BackendAPITests(unittest.TestCase):
         self.assertEqual(
             response.get_json()["error"]["code"],
             "access_denied",
+        )
+
+    def test_android_application_management_endpoints(self):
+        manager = FakeAndroidAppManager()
+        self.app.extensions["android_app_manager"] = manager
+        payload = {
+            "apk_path": "C:\\approved\\message.apk",
+            "expected_package_id": "message.chat.text.messaging.sms",
+            "install_mode": "clean",
+        }
+
+        installed = self.client.post("/api/v1/apps/install", json=payload)
+        inspected = self.client.get(
+            "/api/v1/apps/message.chat.text.messaging.sms"
+            "?device_id=emulator-5554"
+        )
+        removed = self.client.delete(
+            "/api/v1/apps/message.chat.text.messaging.sms",
+            json={"confirm": True},
+        )
+
+        self.assertEqual(installed.status_code, 201)
+        self.assertEqual(installed.get_json()["result"]["status"], "installed")
+        self.assertEqual(inspected.status_code, 200)
+        self.assertTrue(inspected.get_json()["app"]["installed"])
+        self.assertEqual(removed.status_code, 200)
+        self.assertEqual(removed.get_json()["result"]["status"], "uninstalled")
+        self.assertEqual(
+            manager.calls,
+            [
+                ("install", payload),
+                (
+                    "get",
+                    "message.chat.text.messaging.sms",
+                    "emulator-5554",
+                ),
+                (
+                    "uninstall",
+                    "message.chat.text.messaging.sms",
+                    {"confirm": True},
+                ),
+            ],
         )
 
 

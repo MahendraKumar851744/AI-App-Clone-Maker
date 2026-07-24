@@ -9,6 +9,7 @@ from flask import Flask, jsonify
 from werkzeug.exceptions import HTTPException
 
 from backend.api import api
+from backend.apps import AndroidAppManager
 from backend.core.executor import ModuleExecutor, RunStore
 from backend.core.registry import ModuleRegistry
 from backend.core.templating import TemplateRenderer
@@ -31,6 +32,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         MAX_CONTENT_LENGTH=2 * 1024 * 1024,
         RUN_STORE_MAX_ITEMS=500,
         RUNTIME_ADMIN_TOKEN=os.environ.get("RUNTIME_ADMIN_TOKEN"),
+        APP_APK_ROOTS=[
+            Path(__file__).resolve().parents[2] / "assets" / "apps"
+        ],
         EXPLORATION_OUTPUT_ROOT=(
             Path(__file__).resolve().parents[2]
             / "artifacts"
@@ -84,6 +88,13 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     app.extensions["runtime_manager"] = app.config.get(
         "RUNTIME_MANAGER"
     ) or RuntimeManager(Path(__file__).resolve().parents[2])
+    app.extensions["android_app_manager"] = app.config.get(
+        "ANDROID_APP_MANAGER"
+    ) or AndroidAppManager(
+        allowed_apk_roots=list(app.config["APP_APK_ROOTS"]),
+        runtime_manager=app.extensions["runtime_manager"],
+        action_manager=app.extensions["exploration_action_manager"],
+    )
 
     app.register_blueprint(api)
     register_error_handlers(app)

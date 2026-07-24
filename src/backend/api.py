@@ -4,6 +4,13 @@ import hmac
 
 from flask import Blueprint, current_app, jsonify, request
 
+from backend.apps import (
+    AndroidAppManager,
+    AppConflictError,
+    AppNotFoundError,
+    AppOperationError,
+    AppValidationError,
+)
 from backend.core.contracts import JsonObject, require_object
 from backend.core.executor import ModuleExecutor, RunStore
 from backend.core.registry import ModuleRegistry
@@ -60,6 +67,10 @@ def context_exporter() -> ScreenContextExporter:
 
 def runtime_manager() -> RuntimeManager:
     return current_app.extensions["runtime_manager"]
+
+
+def android_app_manager() -> AndroidAppManager:
+    return current_app.extensions["android_app_manager"]
 
 
 def require_runtime_admin() -> None:
@@ -254,3 +265,63 @@ def get_runtime_job(job_id: str):
     except RuntimeJobNotFoundError as error:
         raise ResourceNotFoundError(str(error)) from error
     return jsonify({"job": job})
+
+
+@api.post("/apps/install")
+def install_android_app():
+    require_runtime_admin()
+    try:
+        result = android_app_manager().install(json_body())
+    except AppValidationError as error:
+        raise RequestValidationError(str(error)) from error
+    except AppNotFoundError as error:
+        raise ResourceNotFoundError(str(error)) from error
+    except AppConflictError as error:
+        raise ResourceConflictError(str(error)) from error
+    except AppOperationError as error:
+        raise ExternalServiceError(
+            str(error),
+            details=error.details,
+        ) from error
+    return jsonify({"result": result}), 201
+
+
+@api.get("/apps/<package_id>")
+def get_installed_android_app(package_id: str):
+    require_runtime_admin()
+    try:
+        result = android_app_manager().get(
+            package_id,
+            device_id=request.args.get("device_id"),
+        )
+    except AppValidationError as error:
+        raise RequestValidationError(str(error)) from error
+    except AppNotFoundError as error:
+        raise ResourceNotFoundError(str(error)) from error
+    except AppConflictError as error:
+        raise ResourceConflictError(str(error)) from error
+    except AppOperationError as error:
+        raise ExternalServiceError(
+            str(error),
+            details=error.details,
+        ) from error
+    return jsonify({"app": result})
+
+
+@api.delete("/apps/<package_id>")
+def uninstall_android_app(package_id: str):
+    require_runtime_admin()
+    try:
+        result = android_app_manager().uninstall(package_id, json_body())
+    except AppValidationError as error:
+        raise RequestValidationError(str(error)) from error
+    except AppNotFoundError as error:
+        raise ResourceNotFoundError(str(error)) from error
+    except AppConflictError as error:
+        raise ResourceConflictError(str(error)) from error
+    except AppOperationError as error:
+        raise ExternalServiceError(
+            str(error),
+            details=error.details,
+        ) from error
+    return jsonify({"result": result})

@@ -4,6 +4,7 @@ import tempfile
 import threading
 import time
 import unittest
+import sys
 from pathlib import Path
 
 from backend.runtime import RuntimeManager
@@ -20,6 +21,23 @@ def wait_for_job(manager: RuntimeManager, job_id: str) -> dict:
 
 
 class RuntimeManagerTests(unittest.TestCase):
+    def test_managed_command_has_a_hard_timeout(self):
+        output = []
+        started = time.monotonic()
+
+        exit_code = RuntimeManager._run_command(
+            [sys.executable, "-c", "import time; time.sleep(5)"],
+            Path.cwd(),
+            output.append,
+            1,
+        )
+
+        self.assertEqual(exit_code, 124)
+        self.assertLess(time.monotonic() - started, 4)
+        self.assertTrue(
+            any("exceeded its 1-second timeout" in line for line in output)
+        )
+
     def test_runtime_readiness_requires_abi_compatible_booted_device(self):
         incompatible = [
             {
@@ -48,7 +66,7 @@ class RuntimeManagerTests(unittest.TestCase):
             }
             commands = []
 
-            def runner(command, _cwd, output):
+            def runner(command, _cwd, output, _timeout_seconds):
                 commands.append(command)
                 output(f"completed {command[0]}")
                 if command[0] == "doctor.ps1":
@@ -86,7 +104,7 @@ class RuntimeManagerTests(unittest.TestCase):
             entered = threading.Event()
             release = threading.Event()
 
-            def runner(_command, _cwd, _output):
+            def runner(_command, _cwd, _output, _timeout_seconds):
                 entered.set()
                 release.wait(timeout=2)
                 return 1
