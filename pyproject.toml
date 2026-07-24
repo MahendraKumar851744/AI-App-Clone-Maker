@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 clone-maker = "backend.__main__:main"
 clone-maker-explore = "backend.exploration.__main__:main"
+clone-maker-context = "backend.exploration.llm_context:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

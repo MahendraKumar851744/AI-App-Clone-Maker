@@ -4,6 +4,7 @@ import base64
 import json
 from pathlib import Path
 
+from backend.exploration.llm_context import build_llm_context
 from backend.exploration.models import JsonObject
 
 
@@ -32,11 +33,21 @@ def write_screen_viewer(path: Path, document: JsonObject) -> None:
     payload = base64.b64encode(
         json.dumps(document, ensure_ascii=False, default=str).encode("utf-8")
     ).decode("ascii")
+    llm_context_payload = base64.b64encode(
+        build_llm_context(document).encode("utf-8")
+    ).decode("ascii")
     future_items = "\n".join(f"<li>{item}</li>" for item in FUTURE_CAPTURE_ADDITIONS)
-    path.write_text(_template(payload, future_items), encoding="utf-8")
+    path.write_text(
+        _template(payload, llm_context_payload, future_items),
+        encoding="utf-8",
+    )
 
 
-def _template(payload: str, future_items: str) -> str:
+def _template(
+    payload: str,
+    llm_context_payload: str,
+    future_items: str,
+) -> str:
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -81,6 +92,51 @@ def _template(payload: str, future_items: str) -> str:
       padding: 20px;
       margin-bottom: 20px;
     }}
+    .workflow {{
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 22px;
+    }}
+    .workflow a {{
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      min-height: 72px;
+      padding: 12px;
+      color: inherit;
+      text-decoration: none;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+    }}
+    .workflow .number {{
+      display: grid;
+      place-items: center;
+      flex: 0 0 34px;
+      height: 34px;
+      color: white;
+      background: var(--accent);
+      border-radius: 50%;
+      font-weight: 800;
+    }}
+    .workflow strong, .workflow small {{ display: block; }}
+    .workflow small {{ color: var(--muted); }}
+    .stage-title {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 30px 0 14px;
+    }}
+    .stage-title span {{
+      padding: 5px 10px;
+      color: white;
+      background: var(--accent);
+      border-radius: 999px;
+      font-weight: 750;
+    }}
+    .stage-title h2 {{ margin: 0; font-size: 25px; }}
     .badges, .metrics, .columns, .gallery {{ display: grid; gap: 12px; }}
     .badges {{ display: flex; flex-wrap: wrap; margin-top: 18px; }}
     .badge {{
@@ -149,9 +205,41 @@ def _template(payload: str, future_items: str) -> str:
     .warning {{ color: var(--warn); }}
     .future {{ border-left: 5px solid var(--accent); }}
     .future li {{ margin-bottom: 9px; }}
+    .context-toolbar {{
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }}
+    button {{
+      cursor: pointer;
+      border: 0;
+      border-radius: 8px;
+      padding: 9px 14px;
+      color: white;
+      background: var(--accent);
+      font-weight: 700;
+    }}
+    .context-output {{
+      max-height: 780px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      border-radius: 10px;
+    }}
+    .placeholder {{
+      padding: 24px;
+      color: var(--muted);
+      text-align: center;
+      border: 2px dashed #cbd5e1;
+      border-radius: 10px;
+      background: var(--soft);
+    }}
     code {{ font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }}
     @media (max-width: 820px) {{
       .gallery {{ grid-template-columns: 1fr; }}
+      .workflow {{ grid-template-columns: 1fr; }}
       main {{ padding: 14px; }}
       dl {{ grid-template-columns: 1fr; }}
       dt {{ padding-bottom: 0; border-bottom: 0; }}
@@ -165,6 +253,21 @@ def _template(payload: str, future_items: str) -> str:
     <div class="badges" id="badges"></div>
   </header>
   <main>
+    <nav class="workflow" aria-label="Screen understanding workflow">
+      <a href="#step1"><span class="number">1</span><span>
+        <strong>Captured evidence</strong><small>Appium and Android ground truth</small>
+      </span></a>
+      <a href="#step2"><span class="number">2</span><span>
+        <strong>LLM context</strong><small>Compact, reasoning-friendly summary</small>
+      </span></a>
+      <a href="#step3"><span class="number">3</span><span>
+        <strong>LLM output</strong><small>Reserved for the next workflow stage</small>
+      </span></a>
+    </nav>
+
+    <div class="stage-title" id="step1">
+      <span>Step 1</span><h2>Captured screen evidence</h2>
+    </div>
     <section class="panel">
       <h2>Capture overview</h2>
       <div class="metrics" id="metrics"></div>
@@ -203,6 +306,31 @@ def _template(payload: str, future_items: str) -> str:
       <details><summary>Raw UI hierarchy XML</summary><pre id="rawHierarchy"></pre></details>
     </section>
 
+    <div class="stage-title" id="step2">
+      <span>Step 2</span><h2>LLM-ready screen context</h2>
+    </div>
+    <section class="panel">
+      <div class="context-toolbar">
+        <div>
+          <strong>Deterministic context generated from Step 1</strong>
+          <div class="muted" id="contextStats"></div>
+        </div>
+        <button id="copyContext" type="button">Copy context</button>
+      </div>
+      <pre class="context-output" id="llmContext"></pre>
+    </section>
+
+    <div class="stage-title" id="step3">
+      <span>Step 3</span><h2>LLM output</h2>
+    </div>
+    <section class="panel">
+      <div class="placeholder">
+        <strong>Reserved for the future LLM response.</strong>
+        <div>This stage will show the model's screen understanding, observations,
+          and traversal decision after Step 2 is connected to the LLM.</div>
+      </div>
+    </section>
+
     <section class="panel future">
       <h2>Future capture additions</h2>
       <p class="muted">Static roadmap — deliberately not part of the current capture yet.</p>
@@ -213,6 +341,9 @@ def _template(payload: str, future_items: str) -> str:
     const DATA = JSON.parse(new TextDecoder().decode(
       Uint8Array.from(atob("{payload}"), c => c.charCodeAt(0))
     ));
+    const LLM_CONTEXT = new TextDecoder().decode(
+      Uint8Array.from(atob("{llm_context_payload}"), c => c.charCodeAt(0))
+    );
     const byId = id => document.getElementById(id);
     const get = (obj, path, fallback = "—") => {{
       const value = path.split(".").reduce((current, key) =>
@@ -357,6 +488,26 @@ def _template(payload: str, future_items: str) -> str:
       : `<p class="ok"><strong>No collection errors.</strong></p>`;
     byId("rawJson").textContent = JSON.stringify(DATA, null, 2);
     byId("rawHierarchy").textContent = get(DATA, "hierarchy.raw_xml", "Not captured");
+    byId("llmContext").textContent = LLM_CONTEXT;
+    byId("contextStats").textContent =
+      `${{LLM_CONTEXT.length.toLocaleString()}} characters · about ${{Math.ceil(LLM_CONTEXT.length / 4).toLocaleString()}} tokens`;
+    byId("copyContext").addEventListener("click", async () => {{
+      const button = byId("copyContext");
+      try {{
+        await navigator.clipboard.writeText(LLM_CONTEXT);
+      }} catch (_) {{
+        const temporary = document.createElement("textarea");
+        temporary.value = LLM_CONTEXT;
+        temporary.style.position = "fixed";
+        temporary.style.opacity = "0";
+        document.body.appendChild(temporary);
+        temporary.select();
+        document.execCommand("copy");
+        temporary.remove();
+      }}
+      button.textContent = "Copied";
+      setTimeout(() => button.textContent = "Copy context", 1400);
+    }});
   </script>
 </body>
 </html>

@@ -788,12 +788,20 @@ Milestone 1 is implemented in `src/backend/exploration/`.
   folder, and `appium_screen_content.html` for visual inspection
 - Raw hierarchy and normalized elements embedded in the canonical result instead
   of duplicated XML, CSV, and projection JSON files
+- A deterministic `appium-result.json` to compact Markdown transformer that
+  prioritizes actions, visible text, UI/system state, device context, and capture
+  quality while omitting repetitive or token-heavy raw evidence
+- Loss-safe defaults that retain every action, visible text occurrence, explicit
+  action state, and semantic element; size limits apply only when requested
+- A three-step viewer flow: captured evidence, LLM-ready context, and a reserved
+  LLM-output stage for the next milestone
 - Read-only ADB system probing for authoritative insets, navigation mode, display
   metrics, rotation, focused window, System UI flags, Android build, and IME state
 - Exact status-bar and navigation-bar crops derived from reported system insets
-- Persistent SQLite records plus raw JSON, XML, PNG, CSV, HTML, graph, manifest,
+- Persistent SQLite records plus canonical JSON, PNG, HTML, graph, manifest,
   summary, and event-log artifacts
 - Synchronous CLI entry point through `python -m backend.exploration`
+- Context CLI entry point through `python -m backend.exploration.llm_context`
 - Fake-Appium and persistence tests for the complete Milestone 1 boundary
 
 Navigation, action execution, graph traversal, and LLM planning intentionally

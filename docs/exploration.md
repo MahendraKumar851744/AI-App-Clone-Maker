@@ -66,12 +66,43 @@ details, searchable elements, diagnostics, the complete JSON, and raw hierarchy.
 Its final section is a static roadmap of important capture data to add later.
 Open it directly in a browser; no backend is required.
 
+The viewer presents the processing boundary as three steps:
+
+1. Captured Appium/Android evidence
+2. Compact, deterministic LLM context
+3. A placeholder for the future LLM output
+
+## Generate LLM context
+
+Convert any canonical result to a compact Markdown context block:
+
+```powershell
+.\.runtime\python\Scripts\python.exe -B `
+  -m backend.exploration.llm_context `
+  .\artifacts\explorations\{run_id}\screens\{screen_id}\appium-result.json
+```
+
+The command prints to standard output. Use `--output context.md` when a file is
+needed, without changing the minimal screen directory contract.
+
+The context keeps screen/app identity, every available action, every visible
+text occurrence (distinguished by bounds), overlay and system state, relevant
+device/display conditions, important semantic elements, explicit action states,
+stability, and collection errors. It deliberately excludes raw XML, full
+capabilities, duplicate layout containers, hashes, and pixel statistics while
+pointing back to the canonical result.
+
+Important semantic content is not truncated by default. Optional limits are
+available through `--max-actions`, `--max-text-items`, `--max-elements`, and
+`--max-chars` only when a caller deliberately needs a fixed budget.
+
 SQLite stores the same structured evidence and reserves tables for later
 actions, transitions, workflows, LLM decisions, facts, and exploration
 frontier data.
 
 ## Milestone boundary
 
-This milestone ends after persisting the first screen and closing the Appium
-session. Typed actions, traversal, backtracking, LLM planning, and autonomous
-exploration belong to later milestones.
+This milestone ends after persisting the first screen, generating its compact
+LLM context, and closing the Appium session. Calling an LLM, typed actions,
+traversal, backtracking, planning, and autonomous exploration belong to later
+milestones.

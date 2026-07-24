@@ -111,6 +111,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 Each run is stored under `artifacts/explorations/{run_id}/`.
 See [docs/exploration.md](docs/exploration.md) for the complete output contract.
 
+Create the compact context block that will be sent to an LLM:
+
+```powershell
+.\.runtime\python\Scripts\python.exe -B `
+  -m backend.exploration.llm_context `
+  .\artifacts\explorations\{run_id}\screens\{screen_id}\appium-result.json
+```
+
+The generated viewer shows captured evidence as Step 1, this LLM-ready context
+as Step 2, and a placeholder for the future LLM response as Step 3.
+
 To preserve current application data:
 
 ```powershell

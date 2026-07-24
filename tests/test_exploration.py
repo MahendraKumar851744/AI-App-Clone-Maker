@@ -9,6 +9,7 @@ from pathlib import Path
 from PIL import Image
 
 from backend.exploration.appium import AdbSystemProbe, ApkInspector, AppiumExplorer
+from backend.exploration.llm_context import build_llm_context, load_llm_context
 from backend.exploration.models import ApkMetadata, ScreenCapture, SessionInfo
 from backend.exploration.service import ExplorationService
 from backend.exploration.storage import ExplorationStore
@@ -306,6 +307,42 @@ class MilestoneOneTests(unittest.TestCase):
         )
         self.assertGreater(capture.observation["hierarchy"]["character_count"], 0)
 
+        context = build_llm_context(capture.observation)
+        self.assertIn("# CURRENT ANDROID SCREEN CONTEXT", context)
+        self.assertIn("## AVAILABLE ACTIONS (2)", context)
+        self.assertIn('"Continue"', context)
+        self.assertIn('"Allow"', context)
+        self.assertIn("three_button", context)
+        self.assertIn("enabled=yes", context)
+        self.assertIn("checked=no", context)
+        self.assertIn("Included: 2/2 actions", context)
+        self.assertIn("Full-fidelity fallback: appium-result.json", context)
+        self.assertNotIn("<hierarchy>", context)
+        self.assertLess(
+            len(context),
+            len(json.dumps(capture.observation, default=str)),
+        )
+
+        repeated = json.loads(json.dumps(capture.observation))
+        duplicate = next(
+            item for item in repeated["elements"] if item["text"] == "Continue"
+        )
+        duplicate = {
+            **duplicate,
+            "id": "element_duplicate",
+            "bounds_raw": "[100,400][500,500]",
+            "bounds": {
+                "left": 100,
+                "top": 400,
+                "right": 500,
+                "bottom": 500,
+            },
+        }
+        repeated["elements"].append(duplicate)
+        repeated_context = build_llm_context(repeated)
+        self.assertIn("## VISIBLE TEXT (3 occurrences)", repeated_context)
+        self.assertIn("[element_duplicate]", repeated_context)
+
     def test_captures_and_persists_one_complete_screen(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -365,7 +402,14 @@ class MilestoneOneTests(unittest.TestCase):
             )
             viewer = result.viewer_path.read_text(encoding="utf-8")
             self.assertIn("Appium screen content", viewer)
+            self.assertIn("Step 1", viewer)
+            self.assertIn("Step 2", viewer)
+            self.assertIn("Step 3", viewer)
+            self.assertIn("Copy context", viewer)
             self.assertIn("Future capture additions", viewer)
+            context = load_llm_context(result.document_path)
+            self.assertIn("example.app", context)
+            self.assertNotIn("<hierarchy />", context)
 
             with closing(
                 sqlite3.connect(result.artifact_root / "exploration.db")
