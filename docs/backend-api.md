@@ -35,11 +35,71 @@ POST /api/v1/modules/{module_id}/execute
 POST /api/v1/workflows/execute
 GET  /api/v1/runs
 GET  /api/v1/runs/{run_id}
+POST /api/v1/explorations/{run_id}/actions
 ```
 
 Module definitions and run history are currently process-local. Persistence,
 authentication, authorization, and multi-worker coordination belong in later
 infrastructure layers.
+
+## Monitored exploration actions
+
+All Android interactions use one endpoint and an `action` discriminator:
+
+```http
+POST /api/v1/explorations/{run_id}/actions
+Content-Type: application/json
+```
+
+```json
+{
+  "screen_id": "screen_819fbab46fa2cd6d",
+  "action": "tap",
+  "target": {
+    "element_id": "element_0015"
+  },
+  "parameters": {},
+  "completion": {
+    "any_of": [
+      {"condition": "screen_changed"},
+      {"condition": "dialog_present"}
+    ],
+    "timeout_ms": 15000,
+    "interval_ms": 400,
+    "stable_samples": 3
+  }
+}
+```
+
+The endpoint is synchronous and returns only after the bounded observation loop
+has reached a stable result or timed out. The result separates:
+
+- Appium delivery and target resolution
+- Observable hierarchy, screenshot, activity, package, dialog, permission, and
+  keyboard effects
+- Application process, foreground, crash, and ANR health
+- First-change, stabilization, capture, and total timings
+- Before/after canonical screen references
+- Final classification and errors
+
+The result is stored under
+`artifacts/explorations/{run_id}/transitions/{transition_id}/result.json`, in
+SQLite, and as an edge in `graph.json`.
+
+Supported action families include element interaction, text entry, gestures,
+Android navigation and keys, dialogs and permissions, app lifecycle, hybrid
+contexts, coordinate fallbacks, assertions, capture, wait, and recovery.
+
+Captured element IDs are resolved fresh for each action using resource ID,
+accessibility description, XPath, and finally coordinates. The requested
+screen is validated by package, activity, orientation, and a normalized
+semantic-element hash before dispatch. If it is stale, the endpoint returns
+`409 conflict` and stores
+the actual live screen so the caller can make a new decision.
+
+After an acknowledged state-changing action, the executor never retries the
+action automatically. It observes and classifies the outcome to avoid duplicate
+submissions, sends, payments, or deletions.
 
 ## Logic module
 

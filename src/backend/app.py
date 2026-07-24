@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -11,6 +12,7 @@ from backend.core.executor import ModuleExecutor, RunStore
 from backend.core.registry import ModuleRegistry
 from backend.core.templating import TemplateRenderer
 from backend.errors import PlatformError
+from backend.exploration.actions import ExplorationActionManager
 from backend.modules import AutomationModule, HTTPModule, LLMModule, LogicModule
 from backend.modules.llm_provider import (
     EchoLLMProvider,
@@ -25,6 +27,11 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         JSON_SORT_KEYS=False,
         MAX_CONTENT_LENGTH=2 * 1024 * 1024,
         RUN_STORE_MAX_ITEMS=500,
+        EXPLORATION_OUTPUT_ROOT=(
+            Path(__file__).resolve().parents[2]
+            / "artifacts"
+            / "explorations"
+        ),
     )
     if config:
         app.config.update(config)
@@ -64,6 +71,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     app.extensions["module_executor"] = module_executor
     app.extensions["run_store"] = run_store
     app.extensions["llm_provider_registry"] = llm_providers
+    app.extensions["exploration_action_manager"] = app.config.get(
+        "EXPLORATION_ACTION_MANAGER"
+    ) or ExplorationActionManager(app.config["EXPLORATION_OUTPUT_ROOT"])
 
     app.register_blueprint(api)
     register_error_handlers(app)

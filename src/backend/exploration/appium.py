@@ -407,6 +407,59 @@ class AdbSystemProbe:
             },
         }
 
+    def collect_action_health(
+        self,
+        udid: str,
+        package: str,
+        *,
+        since_epoch: float,
+    ) -> JsonObject:
+        """Collect process and recent crash/ANR evidence for one action window."""
+        try:
+            pid_output = self._shell(udid, "pidof", package)
+        except RuntimeError:
+            pid_output = ""
+        process_ids = [
+            int(value)
+            for value in pid_output.split()
+            if value.strip().isdigit()
+        ]
+        try:
+            log_output = self._shell(
+                udid,
+                "logcat",
+                "-d",
+                "-v",
+                "epoch",
+                "AndroidRuntime:E",
+                "ActivityManager:E",
+                "*:S",
+            )
+        except RuntimeError:
+            log_output = ""
+        recent_lines: list[str] = []
+        for line in log_output.splitlines():
+            match = re.match(r"^\s*(\d+(?:\.\d+)?)\s+", line)
+            if match and float(match.group(1)) >= since_epoch:
+                recent_lines.append(line)
+        recent_log = "\n".join(recent_lines)
+        package_log = package.lower() in recent_log.lower()
+        return {
+            "process_alive": bool(process_ids),
+            "process_ids": process_ids,
+            "crash_detected": bool(
+                package_log
+                and (
+                    "fatal exception" in recent_log.lower()
+                    or "force finishing activity" in recent_log.lower()
+                )
+            ),
+            "anr_detected": bool(
+                package_log and f"anr in {package}".lower() in recent_log.lower()
+            ),
+            "recent_error_log": recent_log[-8000:] if recent_log else "",
+        }
+
     def _shell(self, udid: str, *arguments: str) -> str:
         assert self.adb_path is not None
         creation_flags = (

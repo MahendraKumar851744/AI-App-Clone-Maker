@@ -95,9 +95,33 @@ class ExplorationStore:
         self.event("run_started", {"apk_path": str(apk.path)})
         return self.run_id
 
+    def attach_run(self, run_id: str) -> None:
+        """Attach this store to an existing exploration run."""
+        if self.run_id is not None:
+            raise RuntimeError("This store is already attached to a run.")
+        run_root = self.output_root / run_id
+        database_path = run_root / "exploration.db"
+        if not run_root.is_dir() or not database_path.is_file():
+            raise FileNotFoundError(f"Exploration run does not exist: {run_id}")
+        self.run_id = run_id
+        self.run_root = run_root
+        self.database_path = database_path
+
     def save_screen(self, capture: ScreenCapture) -> CaptureResult:
         run_id, run_root = self._require_run()
         screen_root = run_root / "screens" / capture.screen_id
+        if screen_root.is_dir():
+            document_path = screen_root / "appium-result.json"
+            existing = self._read_json(document_path)
+            return CaptureResult(
+                run_id=run_id,
+                screen_id=capture.screen_id,
+                artifact_root=run_root,
+                screen_root=screen_root,
+                document_path=document_path,
+                viewer_path=screen_root / "appium_screen_content.html",
+                element_count=len(existing.get("elements", [])),
+            )
         screen_root.mkdir(parents=False, exist_ok=False)
         document = json.loads(json.dumps(capture.observation, default=str))
         elements = list(document["elements"])
@@ -184,24 +208,24 @@ class ExplorationStore:
             )
 
         manifest = self._read_json(run_root / "manifest.json")
-        manifest["screens"].append(capture.screen_id)
+        if capture.screen_id not in manifest["screens"]:
+            manifest["screens"].append(capture.screen_id)
         write_json(run_root / "manifest.json", manifest)
-        write_json(
-            run_root / "graph.json",
-            {
-                "schema_version": 1,
-                "run_id": run_id,
-                "nodes": [
-                    {
-                        "screen_id": capture.screen_id,
-                        "fingerprint": document["fingerprint"],
-                        "activity": document["screen"].get("activity"),
-                        "artifact_path": str(screen_root),
-                    }
-                ],
-                "edges": [],
-            },
-        )
+        graph = self._read_json(run_root / "graph.json")
+        if not any(
+            node.get("screen_id") == capture.screen_id
+            for node in graph.get("nodes", [])
+        ):
+            graph.setdefault("nodes", []).append(
+                {
+                    "screen_id": capture.screen_id,
+                    "fingerprint": document["fingerprint"],
+                    "activity": document["screen"].get("activity"),
+                    "artifact_path": str(screen_root),
+                }
+            )
+        graph.setdefault("edges", [])
+        write_json(run_root / "graph.json", graph)
         self.event(
             "screen_captured",
             {
@@ -218,6 +242,75 @@ class ExplorationStore:
             viewer_path=viewer_path,
             element_count=len(elements),
         )
+
+    def save_action_result(self, result: JsonObject) -> Path:
+        """Persist one monitored action and its screen transition."""
+        run_id, run_root = self._require_run()
+        action_id = str(result["action_id"])
+        transition_id = str(result["transition_id"])
+        transition_root = run_root / "transitions" / transition_id
+        transition_root.mkdir(parents=True, exist_ok=False)
+        result_path = transition_root / "result.json"
+        write_json(result_path, result)
+
+        request = result.get("request", {})
+        before = result.get("before", {})
+        after = result.get("after", {})
+        with self._connect() as database:
+            database.execute(
+                """
+                INSERT INTO actions (
+                    run_id, action_id, screen_id, status, action_json
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    action_id,
+                    before.get("screen_id"),
+                    result.get("status"),
+                    json.dumps(result, default=str),
+                ),
+            )
+            database.execute(
+                """
+                INSERT INTO transitions (
+                    run_id, transition_id, from_screen_id, to_screen_id,
+                    status, transition_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    transition_id,
+                    before.get("screen_id"),
+                    after.get("screen_id"),
+                    result.get("status"),
+                    json.dumps(result, default=str),
+                ),
+            )
+
+        graph = self._read_json(run_root / "graph.json")
+        graph.setdefault("edges", []).append(
+            {
+                "transition_id": transition_id,
+                "action_id": action_id,
+                "action": request.get("action"),
+                "from_screen_id": before.get("screen_id"),
+                "to_screen_id": after.get("screen_id"),
+                "classification": result.get("classification"),
+                "artifact_path": str(result_path),
+            }
+        )
+        write_json(run_root / "graph.json", graph)
+        self.event(
+            "action_completed",
+            {
+                "action_id": action_id,
+                "transition_id": transition_id,
+                "classification": result.get("classification"),
+            },
+            level="error" if result.get("status") == "failed" else "info",
+        )
+        return result_path
 
     def complete(self, result: CaptureResult) -> None:
         _, run_root = self._require_run()

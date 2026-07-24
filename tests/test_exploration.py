@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from backend.exploration.actions import ActionExecutor, ActionRequest
 from backend.exploration.appium import AdbSystemProbe, ApkInspector, AppiumExplorer
 from backend.exploration.llm_context import build_llm_context, load_llm_context
 from backend.exploration.models import ApkMetadata, ScreenCapture, SessionInfo
@@ -65,9 +66,16 @@ class FakeDriver:
       </node>
     </hierarchy>"""
 
+    def __init__(self):
+        self.page_source = type(self).page_source
+        self.current_package = type(self).current_package
+        self.current_activity = type(self).current_activity
+        self.changed = False
+
     def get_screenshot_as_png(self):
         stream = BytesIO()
-        Image.new("RGB", (108, 228), "white").save(stream, format="PNG")
+        color = "black" if self.changed else "white"
+        Image.new("RGB", (108, 228), color).save(stream, format="PNG")
         return stream.getvalue()
 
     def get_window_size(self):
@@ -76,8 +84,41 @@ class FakeDriver:
     def is_keyboard_shown(self):
         return False
 
+    def find_element(self, strategy, value):
+        if strategy == "id" and value in {
+            "example.app:id/continue",
+            "example.app:id/allow",
+        }:
+            return FakeElement(self, value)
+        raise RuntimeError(f"not found with {strategy}: {value}")
+
     def quit(self):
         self.closed = True
+
+
+class FakeElement:
+    def __init__(self, driver, resource_id):
+        self.driver = driver
+        self.resource_id = resource_id
+        self.id = f"remote-{resource_id.rsplit('/', 1)[-1]}"
+        self.value = ""
+
+    def click(self):
+        self.driver.changed = True
+        self.driver.current_activity = "example.app.NextActivity"
+        self.driver.page_source = self.driver.page_source.replace(
+            'text="Continue"',
+            'text="Finished"',
+        )
+
+    def send_keys(self, value):
+        self.value += value
+
+    def clear(self):
+        self.value = ""
+
+    def get_attribute(self, name):
+        return "false"
 
 
 class FakeSystemProbe:
@@ -141,6 +182,15 @@ class FakeSystemProbe:
             },
             "navigation": {"mode_value": 0, "mode": "three_button"},
             "input_method": {"shown": False, "inset_visible": False},
+        }
+
+    def collect_action_health(self, udid, package, *, since_epoch):
+        return {
+            "process_alive": True,
+            "process_ids": [1234],
+            "crash_detected": False,
+            "anr_detected": False,
+            "recent_error_log": "",
         }
 
 
@@ -410,6 +460,18 @@ class MilestoneOneTests(unittest.TestCase):
             context = load_llm_context(result.document_path)
             self.assertIn("example.app", context)
             self.assertNotIn("<hierarchy />", context)
+            action_result = {
+                "action_id": "action_1",
+                "transition_id": "transition_action_1",
+                "run_id": result.run_id,
+                "status": "completed",
+                "classification": "acknowledged_no_observable_change",
+                "request": {"action": "tap"},
+                "before": {"screen_id": result.screen_id},
+                "after": {"screen_id": result.screen_id},
+            }
+            action_path = store.save_action_result(action_result)
+            self.assertTrue(action_path.is_file())
 
             with closing(
                 sqlite3.connect(result.artifact_root / "exploration.db")
@@ -426,9 +488,105 @@ class MilestoneOneTests(unittest.TestCase):
                     "SELECT COUNT(*) FROM elements WHERE run_id = ?",
                     (result.run_id,),
                 ).fetchone()[0]
+                action_count = database.execute(
+                    "SELECT COUNT(*) FROM actions WHERE run_id = ?",
+                    (result.run_id,),
+                ).fetchone()[0]
+                transition_count = database.execute(
+                    "SELECT COUNT(*) FROM transitions WHERE run_id = ?",
+                    (result.run_id,),
+                ).fetchone()[0]
             self.assertEqual(run, ("completed",))
             self.assertEqual(screen_count, 1)
             self.assertEqual(element_count, 1)
+            self.assertEqual(action_count, 1)
+            self.assertEqual(transition_count, 1)
+            graph = json.loads(
+                (result.artifact_root / "graph.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(graph["edges"][0]["action_id"], "action_1")
+
+    def test_monitored_tap_reports_delivery_effect_health_and_timing(self):
+        apk = ApkMetadata(
+            path=Path("sample.apk"),
+            sha256="a" * 64,
+            size_bytes=3,
+            package="example.app",
+            launch_activity="example.app.MainActivity",
+        )
+        driver = FakeDriver()
+        explorer = AppiumExplorer(
+            stability_timeout=0.2,
+            stability_interval=0.001,
+            system_probe=FakeSystemProbe(),
+        )
+        explorer.apk = apk
+        explorer.driver = driver
+        explorer.session = SessionInfo(
+            session_id=driver.session_id,
+            server_url="http://127.0.0.1:4723",
+            device_name="Test Android",
+            udid="emulator-5554",
+            capabilities=driver.capabilities,
+        )
+        before = explorer.observe()
+        request = ActionRequest.from_dict(
+            {
+                "screen_id": before.screen_id,
+                "action": "tap",
+                "target": {"element_id": "element_0003"},
+                "completion": {
+                    "timeout_ms": 1000,
+                    "interval_ms": 10,
+                    "stable_samples": 2,
+                },
+            }
+        )
+
+        result, after = ActionExecutor(explorer).execute(
+            "run_123",
+            request,
+            before.observation,
+            before,
+        )
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(
+            result["classification"],
+            "succeeded_screen_changed",
+        )
+        self.assertTrue(result["delivery"]["acknowledged"])
+        self.assertTrue(result["effect"]["activity_changed"])
+        self.assertTrue(result["effect"]["hierarchy_changed"])
+        self.assertEqual(result["app_health"]["status"], "healthy")
+        self.assertTrue(result["stability"]["stable"])
+        self.assertGreaterEqual(result["stability"]["samples"], 2)
+        self.assertIn("total_ms", result["timings"])
+        self.assertEqual(
+            after.observation["screen"]["activity"],
+            "example.app.NextActivity",
+        )
+
+    def test_acknowledged_action_with_crash_evidence_is_classified_as_crash(self):
+        request = ActionRequest.from_dict(
+            {
+                "screen_id": "screen_123",
+                "action": "back",
+            }
+        )
+        classification = ActionExecutor._classification(
+            {"acknowledged": True, "status": "acknowledged"},
+            {"stable": True, "session_unresponsive": False},
+            {"observable_change": True},
+            {
+                "crash_detected": True,
+                "anr_detected": False,
+                "process_alive": False,
+            },
+            request,
+            {},
+        )
+        self.assertEqual(classification, "app_crashed")
 
 
 if __name__ == "__main__":

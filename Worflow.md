@@ -804,5 +804,19 @@ Milestone 1 is implemented in `src/backend/exploration/`.
 - Context CLI entry point through `python -m backend.exploration.llm_context`
 - Fake-Appium and persistence tests for the complete Milestone 1 boundary
 
-Navigation, action execution, graph traversal, and LLM planning intentionally
-remain outside this milestone.
+Action execution begins in Milestone 2; autonomous navigation, graph traversal,
+and LLM planning remain separated into later milestones.
+
+Milestone 2 now includes the deterministic action-execution foundation:
+
+- One `POST /api/v1/explorations/{run_id}/actions` endpoint for all action types
+- Run-scoped live Appium sessions with serialized action execution
+- Fresh element resolution from captured IDs and stale-screen protection
+- Delivery, observable-effect, application-health, timing, and error reporting
+- Bounded first-change and stabilization monitoring
+- Crash/ANR evidence scoped to the action time window
+- Complete after-screen capture and persistent transition graph edges
+- No blind retry after an acknowledged state-changing action
+
+Automated traversal, backtracking policy, and LLM-selected actions remain later
+Milestone 2/3 work.

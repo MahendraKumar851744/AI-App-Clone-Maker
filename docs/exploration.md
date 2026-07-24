@@ -100,9 +100,52 @@ SQLite stores the same structured evidence and reserves tables for later
 actions, transitions, workflows, LLM decisions, facts, and exploration
 frontier data.
 
+## Execute a monitored action
+
+The backend exposes one generic endpoint for every supported action:
+
+```http
+POST /api/v1/explorations/{run_id}/actions
+```
+
+```json
+{
+  "screen_id": "screen_819fbab46fa2cd6d",
+  "action": "tap",
+  "target": {"element_id": "element_0015"},
+  "parameters": {},
+  "completion": {
+    "condition": "screen_changed",
+    "timeout_ms": 15000,
+    "interval_ms": 400,
+    "stable_samples": 3
+  }
+}
+```
+
+The manager keeps one live Appium session and lock per exploration run. For a
+run created by the one-screen CLI, the first action resumes a session from the
+stored APK with application data preserved and verifies that the live semantic
+screen still matches the requested capture.
+
+Each action records command delivery, resolved locator, observable effect,
+process/foreground/crash/ANR health, stabilization samples, phase timings,
+errors, and complete before/after screen references. The loop is bounded:
+
+- 15-second default timeout, configurable up to 60 seconds
+- 400 ms default sampling interval
+- Three equal semantic samples required for stability
+- Full canonical capture after stabilization
+- No automatic repeat after an acknowledged state-changing action
+
+Transitions are persisted in JSON, SQLite, the event log, and `graph.json`.
+
 ## Milestone boundary
 
-This milestone ends after persisting the first screen, generating its compact
-LLM context, and closing the Appium session. Calling an LLM, typed actions,
-traversal, backtracking, planning, and autonomous exploration belong to later
-milestones.
+Ground-truth capture, compact LLM context creation, monitored typed actions,
+before/after evidence, and transition persistence are implemented. Automated
+action selection, backtracking, frontier traversal, and LLM planning belong to
+later milestones.
+
+See [llm-exploration-api.md](llm-exploration-api.md) for the complete two-API
+handoff specification intended for LLM requirements and integration work.

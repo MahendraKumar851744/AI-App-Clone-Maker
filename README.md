@@ -77,10 +77,16 @@ POST   /api/v1/modules/{module_id}/execute
 POST   /api/v1/workflows/execute
 GET    /api/v1/runs
 GET    /api/v1/runs/{run_id}
+POST   /api/v1/explorations/{run_id}/actions
 ```
 
 See [docs/backend-api.md](docs/backend-api.md) for request and response
 examples.
+
+For the complete Screen → LLM Context → Monitored Action handoff contract,
+including schemas, every supported action, result classifications, persistence,
+safety rules, and known implementation gaps, see
+[docs/llm-exploration-api.md](docs/llm-exploration-api.md).
 
 ## Capture the first Android screen
 

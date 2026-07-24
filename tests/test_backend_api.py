@@ -30,6 +30,22 @@ class FakeHTTPSession:
         raise AssertionError("Unexpected LLM HTTP call in unit tests.")
 
 
+class FakeExplorationActionManager:
+    def __init__(self):
+        self.calls = []
+
+    def execute(self, run_id, payload):
+        self.calls.append((run_id, payload))
+        return {
+            "contract": "appium.action_result",
+            "action_id": "action-1",
+            "run_id": run_id,
+            "status": "completed",
+            "classification": "succeeded_screen_changed",
+            "request": payload,
+        }
+
+
 class BackendAPITests(unittest.TestCase):
     def setUp(self):
         self.http_session = FakeHTTPSession()
@@ -230,6 +246,28 @@ class BackendAPITests(unittest.TestCase):
         response = self.client.post("/api/v1/modules", json=payload)
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.get_json()["error"]["code"], "conflict")
+
+    def test_single_exploration_action_endpoint_dispatches_any_action(self):
+        manager = FakeExplorationActionManager()
+        self.app.extensions["exploration_action_manager"] = manager
+        payload = {
+            "screen_id": "screen_123",
+            "action": "tap",
+            "target": {"element_id": "element_0015"},
+            "completion": {"timeout_ms": 15000},
+        }
+
+        response = self.client.post(
+            "/api/v1/explorations/run_123/actions",
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(
+            response.get_json()["result"]["classification"],
+            "succeeded_screen_changed",
+        )
+        self.assertEqual(manager.calls, [("run_123", payload)])
 
 
 if __name__ == "__main__":

@@ -6,6 +6,14 @@ from backend.core.contracts import JsonObject, require_object
 from backend.core.executor import ModuleExecutor, RunStore
 from backend.core.registry import ModuleRegistry
 from backend.errors import RequestValidationError
+from backend.errors import ResourceConflictError, ResourceNotFoundError
+from backend.exploration.actions import (
+    ActionValidationError,
+    ExplorationActionManager,
+    ExplorationRunNotFoundError,
+    ScreenNotFoundError,
+    StaleScreenError,
+)
 from backend.modules.llm_provider import LLMProviderRegistry
 
 
@@ -22,6 +30,10 @@ def executor() -> ModuleExecutor:
 
 def run_store() -> RunStore:
     return current_app.extensions["run_store"]
+
+
+def action_manager() -> ExplorationActionManager:
+    return current_app.extensions["exploration_action_manager"]
 
 
 def json_body() -> JsonObject:
@@ -106,3 +118,19 @@ def list_runs():
 @api.get("/runs/<run_id>")
 def get_run(run_id: str):
     return jsonify({"run": run_store().get(run_id).to_dict()})
+
+
+@api.post("/explorations/<run_id>/actions")
+def execute_exploration_action(run_id: str):
+    try:
+        result = action_manager().execute(run_id, json_body())
+    except ActionValidationError as error:
+        raise RequestValidationError(str(error)) from error
+    except (ExplorationRunNotFoundError, ScreenNotFoundError) as error:
+        raise ResourceNotFoundError(str(error)) from error
+    except StaleScreenError as error:
+        raise ResourceConflictError(
+            str(error),
+            details=error.details,
+        ) from error
+    return jsonify({"result": result})
