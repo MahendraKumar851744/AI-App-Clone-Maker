@@ -20,6 +20,26 @@ def wait_for_job(manager: RuntimeManager, job_id: str) -> dict:
 
 
 class RuntimeManagerTests(unittest.TestCase):
+    def test_runtime_readiness_requires_abi_compatible_booted_device(self):
+        incompatible = [
+            {
+                "state": "device",
+                "boot_completed": True,
+                "compatible": False,
+            }
+        ]
+        compatible = [
+            *incompatible,
+            {
+                "state": "device",
+                "boot_completed": True,
+                "compatible": True,
+            },
+        ]
+
+        self.assertFalse(RuntimeManager._has_ready_device(incompatible))
+        self.assertTrue(RuntimeManager._has_ready_device(compatible))
+
     def test_provision_runs_setup_and_doctor_and_persists_success(self):
         with tempfile.TemporaryDirectory() as directory:
             state = {

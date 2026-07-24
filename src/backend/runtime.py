@@ -117,10 +117,7 @@ class RuntimeManager:
             ),
         }
         prerequisites_ready = all(item["available"] for item in commands.values())
-        device_ready = any(
-            item.get("state") == "device" and item.get("boot_completed")
-            for item in devices
-        )
+        device_ready = self._has_ready_device(devices)
         provisioned = (
             prerequisites_ready
             and android["ready"]
@@ -706,6 +703,15 @@ class RuntimeManager:
             return (completed.stdout or "") + (completed.stderr or "")
         except (OSError, subprocess.TimeoutExpired):
             return ""
+
+    @staticmethod
+    def _has_ready_device(devices: list[JsonObject]) -> bool:
+        return any(
+            item.get("state") == "device"
+            and item.get("boot_completed")
+            and item.get("compatible")
+            for item in devices
+        )
 
     def _managed_process(
         self,
