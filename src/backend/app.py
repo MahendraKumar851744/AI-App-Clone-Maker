@@ -13,6 +13,7 @@ from backend.core.registry import ModuleRegistry
 from backend.core.templating import TemplateRenderer
 from backend.errors import PlatformError
 from backend.exploration.actions import ExplorationActionManager
+from backend.exploration.context_export import ScreenContextExporter
 from backend.modules import AutomationModule, HTTPModule, LLMModule, LogicModule
 from backend.modules.llm_provider import (
     EchoLLMProvider,
@@ -74,6 +75,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     app.extensions["exploration_action_manager"] = app.config.get(
         "EXPLORATION_ACTION_MANAGER"
     ) or ExplorationActionManager(app.config["EXPLORATION_OUTPUT_ROOT"])
+    app.extensions["screen_context_exporter"] = app.config.get(
+        "SCREEN_CONTEXT_EXPORTER"
+    ) or ScreenContextExporter(app.config["EXPLORATION_OUTPUT_ROOT"])
 
     app.register_blueprint(api)
     register_error_handlers(app)

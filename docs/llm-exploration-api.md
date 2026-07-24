@@ -43,7 +43,7 @@ The API operations covered here are:
 | Installed-package launch and screen pointer API | Implemented                                       |
 | Canonical `appium-result.json` capture           | Implemented and real-device tested                |
 | JSON-to-LLM Markdown transformer                 | Implemented and tested as Python/CLI              |
-| HTTP context-export endpoint                     | Proposed in this document; not implemented        |
+| HTTP context-export endpoint                     | Implemented                                       |
 | Generic monitored action HTTP endpoint           | Implemented                                       |
 | Target resolution and stale-screen protection    | Implemented                                       |
 | Action observation/stabilization loop            | Implemented                                       |
@@ -182,7 +182,7 @@ Acknowledgement and observable effect are different facts.
 
 ## 4. Endpoint
 
-Proposed endpoint:
+Implemented endpoint:
 
 ```http
 POST /api/v1/explorations/context
@@ -445,9 +445,9 @@ occurred. Shortness must never be confused with completeness.
 Inline canonical documents are subject to the backend request-size limit.
 Stored references are preferred for large captures.
 
-## 12. Current non-HTTP usage
+## 12. CLI usage
 
-Until the HTTP context endpoint is implemented:
+The same transformer remains available without the web server:
 
 ```powershell
 .\.runtime\python\Scripts\python.exe -B `
@@ -1645,9 +1645,10 @@ Before autonomous use:
 
 ### Context API
 
-- HTTP route and response metadata are not implemented.
-- Transformer currently exists as Python and CLI.
-- Structured coverage metadata should be returned separately from Markdown.
+- Stored-screen and inline-screen sources are implemented.
+- Structured coverage, warnings, source metadata, and visual evidence are
+  returned separately from Markdown.
+- Only Markdown output is currently supported.
 
 ### Action API
 

@@ -116,6 +116,26 @@ Important semantic content is not truncated by default. Optional limits are
 available through `--max-actions`, `--max-text-items`, `--max-elements`, and
 `--max-chars` only when a caller deliberately needs a fixed budget.
 
+The same transformer is available through the backend API:
+
+```powershell
+$body = @{
+  screen_ref = @{
+    run_id = "your-run-id"
+    screen_id = "your-screen-id"
+  }
+  options = @{}
+} | ConvertTo-Json -Depth 5
+
+$context = Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:5000/api/v1/explorations/context `
+  -ContentType application/json `
+  -Body $body
+
+$context.context.text
+```
+
 SQLite stores the same structured evidence and reserves tables for later
 actions, transitions, workflows, LLM decisions, facts, and exploration
 frontier data.

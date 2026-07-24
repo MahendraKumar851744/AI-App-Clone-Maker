@@ -16,6 +16,10 @@ def build_llm_context(
     max_text_items: int | None = None,
     max_elements: int | None = None,
     max_chars: int | None = None,
+    include_screenshot_reference: bool = True,
+    include_device_context: bool = True,
+    include_system_context: bool = True,
+    include_capture_quality: bool = True,
 ) -> str:
     """Convert a canonical Appium result into compact LLM ground truth."""
     _validate_document(document)
@@ -49,10 +53,12 @@ def build_llm_context(
             f"({_value(document, 'stability.samples')} samples, "
             f"{_value(document, 'stability.duration_ms')} ms)"
         ),
-        f"- Screenshot: {_value(document, 'artifacts.screenshots.full')}",
-        "",
-        f"## AVAILABLE ACTIONS ({len(actions)})",
     ]
+    if include_screenshot_reference:
+        lines.append(
+            f"- Screenshot: {_value(document, 'artifacts.screenshots.full')}"
+        )
+    lines.extend(["", f"## AVAILABLE ACTIONS ({len(actions)})"])
 
     if actions:
         for element in _limited(actions, max_actions):
@@ -76,45 +82,53 @@ def build_llm_context(
     else:
         lines.append("- No visible text was exposed by UIAutomator.")
 
-    lines.extend(
-        [
-            "",
-            "## UI STATE",
-            f"- Dialog present: {_yes_no(_get(document, 'system.dialog.present'))}",
-            (
-                "- Permission prompt present: "
-                f"{_yes_no(_get(document, 'system.permission_prompt.present'))}"
-            ),
-            f"- Keyboard visible: {_yes_no(_get(document, 'system.keyboard_visible'))}",
-            (
-                f"- Status bar: {_bar_summary(_get(document, 'system.status_bar'))}"
-            ),
-            (
-                f"- Navigation bar: "
-                f"{_bar_summary(_get(document, 'system.navigation_bar'))}; "
-                f"mode: {_value(document, 'system.navigation.mode')}"
-            ),
-            "",
-            "## DEVICE CONTEXT",
-            (
-                f"- {_value(document, 'device.manufacturer')} "
-                f"{_value(document, 'device.model')}; "
-                f"Android {_value(document, 'device.android_version')} "
-                f"(API {_value(document, 'device.api_level')})"
-            ),
-            (
-                f"- Display: {_size(_get(document, 'display.physical_size'))}; "
-                f"density: {_value(document, 'display.physical_density_dpi')} dpi; "
-                f"rotation: {_value(document, 'display.rotation')}"
-            ),
-            (
-                f"- Locale: {_value(document, 'device.locale')}; "
-                f"timezone: {_value(document, 'device.timezone')}"
-            ),
-            "",
-            f"## OTHER IMPORTANT ELEMENTS ({len(informative)})",
-        ]
-    )
+    if include_system_context:
+        lines.extend(
+            [
+                "",
+                "## UI STATE",
+                f"- Dialog present: {_yes_no(_get(document, 'system.dialog.present'))}",
+                (
+                    "- Permission prompt present: "
+                    f"{_yes_no(_get(document, 'system.permission_prompt.present'))}"
+                ),
+                f"- Keyboard visible: {_yes_no(_get(document, 'system.keyboard_visible'))}",
+                (
+                    f"- Status bar: "
+                    f"{_bar_summary(_get(document, 'system.status_bar'))}"
+                ),
+                (
+                    f"- Navigation bar: "
+                    f"{_bar_summary(_get(document, 'system.navigation_bar'))}; "
+                    f"mode: {_value(document, 'system.navigation.mode')}"
+                ),
+            ]
+        )
+
+    if include_device_context:
+        lines.extend(
+            [
+                "",
+                "## DEVICE CONTEXT",
+                (
+                    f"- {_value(document, 'device.manufacturer')} "
+                    f"{_value(document, 'device.model')}; "
+                    f"Android {_value(document, 'device.android_version')} "
+                    f"(API {_value(document, 'device.api_level')})"
+                ),
+                (
+                    f"- Display: {_size(_get(document, 'display.physical_size'))}; "
+                    f"density: {_value(document, 'display.physical_density_dpi')} dpi; "
+                    f"rotation: {_value(document, 'display.rotation')}"
+                ),
+                (
+                    f"- Locale: {_value(document, 'device.locale')}; "
+                    f"timezone: {_value(document, 'device.timezone')}"
+                ),
+            ]
+        )
+
+    lines.extend(["", f"## OTHER IMPORTANT ELEMENTS ({len(informative)})"])
 
     if informative:
         for element in _limited(informative, max_elements):
@@ -165,11 +179,30 @@ def build_llm_context(
             ),
         ]
     )
+    if not include_capture_quality:
+        quality_heading = lines.index("## CAPTURE QUALITY")
+        coverage_heading = lines.index("## CONTEXT COVERAGE")
+        del lines[max(0, quality_heading - 1) : coverage_heading]
+
     context = "\n".join(lines).strip() + "\n"
     if not max_chars or len(context) <= max_chars:
         return context
     marker = "\n\n[Context truncated to configured character limit.]\n"
+    if max_chars <= len(marker):
+        return marker[:max_chars]
     return context[: max(0, max_chars - len(marker))].rstrip() + marker
+
+
+def context_inventory(document: JsonObject) -> JsonObject:
+    """Return the semantic item counts used by the context projection."""
+    _validate_document(document)
+    elements = list(document.get("elements") or [])
+    actions = _actionable_elements(elements)
+    return {
+        "actions": len(actions),
+        "visible_text_occurrences": len(_visible_text(elements)),
+        "semantic_elements": len(_informative_elements(elements, actions)),
+    }
 
 
 def load_llm_context(
@@ -193,9 +226,18 @@ def _validate_document(document: JsonObject) -> None:
         raise ValueError(
             "Expected an appium.screen_capture canonical result document."
         )
-    for field in ("screen", "system", "elements"):
-        if field not in document:
-            raise ValueError(f"Appium result is missing required field: {field}")
+    for field in ("screen", "system"):
+        if not isinstance(document.get(field), dict):
+            raise ValueError(
+                f"Appium result field '{field}' must be a JSON object."
+            )
+    elements = document.get("elements")
+    if not isinstance(elements, list) or not all(
+        isinstance(item, dict) for item in elements
+    ):
+        raise ValueError(
+            "Appium result field 'elements' must be an array of objects."
+        )
 
 
 def _actionable_elements(elements: list[JsonObject]) -> list[JsonObject]:

@@ -60,6 +60,23 @@ class FakeExplorationActionManager:
         }
 
 
+class FakeScreenContextExporter:
+    def __init__(self):
+        self.calls = []
+
+    def export(self, payload):
+        self.calls.append(payload)
+        return {
+            "contract": "appium.llm_screen_context",
+            "format": "text/markdown",
+            "text": "# CURRENT ANDROID SCREEN CONTEXT\n",
+            "source": {
+                "run_id": payload["screen_ref"]["run_id"],
+                "screen_id": payload["screen_ref"]["screen_id"],
+            },
+        }
+
+
 class BackendAPITests(unittest.TestCase):
     def setUp(self):
         self.http_session = FakeHTTPSession()
@@ -314,6 +331,57 @@ class BackendAPITests(unittest.TestCase):
         self.assertEqual(
             response.get_json()["error"]["code"],
             "validation_error",
+        )
+
+    def test_export_screen_context_dispatches_stored_screen_reference(self):
+        exporter = FakeScreenContextExporter()
+        self.app.extensions["screen_context_exporter"] = exporter
+        payload = {
+            "screen_ref": {
+                "run_id": "run_123",
+                "screen_id": "screen_456",
+            },
+            "options": {"max_characters": 4000},
+        }
+
+        response = self.client.post(
+            "/api/v1/explorations/context",
+            json=payload,
+        )
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        context = response.get_json()["context"]
+        self.assertEqual(context["contract"], "appium.llm_screen_context")
+        self.assertEqual(context["source"]["screen_id"], "screen_456")
+        self.assertEqual(exporter.calls, [payload])
+
+    def test_export_screen_context_requires_exactly_one_source(self):
+        response = self.client.post(
+            "/api/v1/explorations/context",
+            json={},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.get_json()["error"]["code"],
+            "validation_error",
+        )
+
+    def test_export_screen_context_rejects_unsupported_contract(self):
+        response = self.client.post(
+            "/api/v1/explorations/context",
+            json={
+                "screen": {
+                    "contract": "something.else",
+                    "schema_version": 1,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            response.get_json()["error"]["code"],
+            "unsupported_screen_contract",
         )
 
 

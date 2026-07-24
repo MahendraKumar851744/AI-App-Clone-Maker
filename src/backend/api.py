@@ -19,6 +19,11 @@ from backend.exploration.actions import (
     ScreenNotFoundError,
     StaleScreenError,
 )
+from backend.exploration.context_export import (
+    ContextScreenNotFoundError,
+    ContextValidationError,
+    ScreenContextExporter,
+)
 from backend.modules.llm_provider import LLMProviderRegistry
 
 
@@ -39,6 +44,10 @@ def run_store() -> RunStore:
 
 def action_manager() -> ExplorationActionManager:
     return current_app.extensions["exploration_action_manager"]
+
+
+def context_exporter() -> ScreenContextExporter:
+    return current_app.extensions["screen_context_exporter"]
 
 
 def json_body() -> JsonObject:
@@ -150,3 +159,14 @@ def open_installed_application():
     except AppLaunchError as error:
         raise ExternalServiceError(str(error)) from error
     return jsonify({"result": result}), 201
+
+
+@api.post("/explorations/context")
+def export_screen_context():
+    try:
+        result = context_exporter().export(json_body())
+    except ContextValidationError as error:
+        raise RequestValidationError(str(error)) from error
+    except ContextScreenNotFoundError as error:
+        raise ResourceNotFoundError(str(error)) from error
+    return jsonify({"context": result})

@@ -36,6 +36,7 @@ POST /api/v1/workflows/execute
 GET  /api/v1/runs
 GET  /api/v1/runs/{run_id}
 POST /api/v1/explorations/open
+POST /api/v1/explorations/context
 POST /api/v1/explorations/{run_id}/actions
 ```
 
@@ -101,6 +102,35 @@ Use `screen_ref.run_id` in the action endpoint path and
 ID returns `400 validation_error`. Appium connection failures, missing
 installed packages, or activation failures return `502
 external_service_failed`.
+
+## Export LLM-ready screen context
+
+Convert either a stored screen pointer or an inline canonical capture into
+compact Markdown:
+
+```http
+POST /api/v1/explorations/context
+Content-Type: application/json
+```
+
+```json
+{
+  "screen_ref": {
+    "run_id": "c709922b-cce1-4b9c-986d-5eac25f3caad",
+    "screen_id": "screen_819fbab46fa2cd6d"
+  },
+  "options": {}
+}
+```
+
+The response includes the LLM-ready `text`, character and estimated-token
+counts, source identity, structured coverage, screenshot reference, truncation
+status, and warnings. Important evidence is unlimited by default. Explicit
+options can limit actions, text, semantic elements, or final characters and can
+exclude screenshot, device, system, or capture-quality sections.
+
+The endpoint also accepts a complete canonical `appium.screen_capture` object
+in `screen` instead of `screen_ref`. Exactly one source is required.
 
 ## Monitored exploration actions
 

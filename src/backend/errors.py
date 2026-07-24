@@ -52,6 +52,11 @@ class ExternalServiceError(PlatformError):
     status_code = 502
 
 
+class UnsupportedScreenContractError(PlatformError):
+    code = "unsupported_screen_contract"
+    status_code = 422
+
+
 class AutomationContractPendingError(PlatformError):
     code = "automation_contract_pending"
     status_code = 501

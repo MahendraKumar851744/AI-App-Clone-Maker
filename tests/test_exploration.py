@@ -14,6 +14,7 @@ from backend.exploration.actions import (
     ExplorationActionManager,
 )
 from backend.exploration.appium import AdbSystemProbe, ApkInspector, AppiumExplorer
+from backend.exploration.context_export import ScreenContextExporter
 from backend.exploration.llm_context import build_llm_context, load_llm_context
 from backend.exploration.models import ApkMetadata, ScreenCapture, SessionInfo
 from backend.exploration.service import ExplorationService
@@ -311,6 +312,86 @@ class ApkInspectorTests(unittest.TestCase):
 
 
 class MilestoneOneTests(unittest.TestCase):
+    def test_context_export_supports_inline_and_stored_screens_with_coverage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk = ApkMetadata(
+                path=Path("sample.apk"),
+                sha256="a" * 64,
+                size_bytes=3,
+                package="example.app",
+                launch_activity="example.app.MainActivity",
+            )
+            document = observation(apk)
+            first = {
+                **document["elements"][0],
+                "id": "element_0001",
+                "text": "Continue",
+                "clickable": True,
+                "interaction": "tap",
+            }
+            second = {
+                **first,
+                "id": "element_0002",
+                "text": "Cancel",
+                "bounds_raw": "[0,100][100,200]",
+            }
+            document["elements"] = [first, second]
+            document["artifacts"] = {
+                "screenshots": {"full": "screens/screen-id/screenshots/screen.png"}
+            }
+            exporter = ScreenContextExporter(root)
+
+            inline = exporter.export(
+                {
+                    "screen": document,
+                    "options": {
+                        "max_actions": 1,
+                        "include_device_context": False,
+                        "include_system_context": False,
+                        "include_capture_quality": False,
+                    },
+                }
+            )
+
+            self.assertEqual(inline["contract"], "appium.llm_screen_context")
+            self.assertEqual(inline["source"]["type"], "inline")
+            self.assertEqual(inline["coverage"]["actions"]["available"], 2)
+            self.assertEqual(inline["coverage"]["actions"]["included"], 1)
+            self.assertFalse(inline["coverage"]["actions"]["complete"])
+            self.assertTrue(inline["coverage"]["truncated"])
+            self.assertNotIn("## DEVICE CONTEXT", inline["text"])
+            self.assertNotIn("## UI STATE", inline["text"])
+            self.assertNotIn("## CAPTURE QUALITY", inline["text"])
+            self.assertEqual(
+                inline["visual_evidence"]["screenshot"],
+                "screens/screen-id/screenshots/screen.png",
+            )
+
+            path = (
+                root
+                / "run_123"
+                / "screens"
+                / document["screen_id"]
+                / "appium-result.json"
+            )
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(document), encoding="utf-8")
+            stored = exporter.export(
+                {
+                    "screen_ref": {
+                        "run_id": "run_123",
+                        "screen_id": document["screen_id"],
+                    }
+                }
+            )
+
+            self.assertEqual(stored["source"]["type"], "stored")
+            self.assertEqual(stored["source"]["run_id"], "run_123")
+            self.assertTrue(stored["coverage"]["actions"]["complete"])
+            self.assertIn("Continue", stored["text"])
+            self.assertIn("Cancel", stored["text"])
+
     def test_package_launch_creates_run_and_returns_reusable_screen_pointer(self):
         with tempfile.TemporaryDirectory() as directory:
             driver = FakeDriver()
