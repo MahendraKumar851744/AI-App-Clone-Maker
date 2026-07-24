@@ -35,6 +35,11 @@ POST /api/v1/modules/{module_id}/execute
 POST /api/v1/workflows/execute
 GET  /api/v1/runs
 GET  /api/v1/runs/{run_id}
+GET  /api/v1/admin/runtime/status
+POST /api/v1/admin/runtime/provision
+POST /api/v1/admin/runtime/start
+POST /api/v1/admin/runtime/stop
+GET  /api/v1/admin/jobs/{job_id}
 POST /api/v1/explorations/open
 POST /api/v1/explorations/context
 POST /api/v1/explorations/{run_id}/actions
@@ -43,6 +48,25 @@ POST /api/v1/explorations/{run_id}/actions
 Module definitions and run history are currently process-local. Persistence,
 authentication, authorization, and multi-worker coordination belong in later
 infrastructure layers.
+
+## Runtime administration
+
+The loopback-only runtime API reports the complete pinned Android/Appium
+environment, provisions missing components through asynchronous persisted
+jobs, starts the compatible emulator and Appium server, and safely stops only
+PID-tracked project processes.
+
+```http
+GET  /api/v1/admin/runtime/status
+POST /api/v1/admin/runtime/provision
+GET  /api/v1/admin/jobs/{job_id}
+POST /api/v1/admin/runtime/start
+POST /api/v1/admin/runtime/stop
+```
+
+Full contracts, license behavior, job states, safety boundaries, and examples
+are documented in
+[runtime-provisioning.md](runtime-provisioning.md).
 
 ## Open an installed Android application
 

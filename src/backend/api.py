@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hmac
+
 from flask import Blueprint, current_app, jsonify, request
 
 from backend.core.contracts import JsonObject, require_object
 from backend.core.executor import ModuleExecutor, RunStore
 from backend.core.registry import ModuleRegistry
-from backend.errors import RequestValidationError
+from backend.errors import AccessDeniedError, RequestValidationError
 from backend.errors import (
     ExternalServiceError,
     ResourceConflictError,
@@ -25,6 +27,12 @@ from backend.exploration.context_export import (
     ScreenContextExporter,
 )
 from backend.modules.llm_provider import LLMProviderRegistry
+from backend.runtime import (
+    RuntimeConflictError,
+    RuntimeJobNotFoundError,
+    RuntimeManager,
+    RuntimeValidationError,
+)
 
 
 api = Blueprint("api", __name__, url_prefix="/api/v1")
@@ -48,6 +56,30 @@ def action_manager() -> ExplorationActionManager:
 
 def context_exporter() -> ScreenContextExporter:
     return current_app.extensions["screen_context_exporter"]
+
+
+def runtime_manager() -> RuntimeManager:
+    return current_app.extensions["runtime_manager"]
+
+
+def require_runtime_admin() -> None:
+    remote = request.remote_addr or ""
+    if remote not in {"127.0.0.1", "::1"}:
+        raise AccessDeniedError(
+            "Runtime administration is restricted to loopback clients."
+        )
+    expected = current_app.config.get("RUNTIME_ADMIN_TOKEN")
+    if expected:
+        authorization = request.headers.get("Authorization", "")
+        supplied = (
+            authorization[7:]
+            if authorization.startswith("Bearer ")
+            else ""
+        )
+        if not hmac.compare_digest(str(expected), supplied):
+            raise AccessDeniedError(
+                "A valid runtime administration bearer token is required."
+            )
 
 
 def json_body() -> JsonObject:
@@ -170,3 +202,55 @@ def export_screen_context():
     except ContextScreenNotFoundError as error:
         raise ResourceNotFoundError(str(error)) from error
     return jsonify({"context": result})
+
+
+@api.get("/admin/runtime/status")
+def get_runtime_status():
+    require_runtime_admin()
+    return jsonify({"runtime": runtime_manager().status()})
+
+
+@api.post("/admin/runtime/provision")
+def provision_runtime():
+    require_runtime_admin()
+    try:
+        job, reused = runtime_manager().provision(json_body())
+    except RuntimeValidationError as error:
+        raise RequestValidationError(str(error)) from error
+    except RuntimeConflictError as error:
+        raise ResourceConflictError(str(error)) from error
+    return jsonify({"job": job, "reused": reused}), 202
+
+
+@api.post("/admin/runtime/start")
+def start_runtime():
+    require_runtime_admin()
+    try:
+        job, reused = runtime_manager().start(json_body())
+    except RuntimeValidationError as error:
+        raise RequestValidationError(str(error)) from error
+    except RuntimeConflictError as error:
+        raise ResourceConflictError(str(error)) from error
+    return jsonify({"job": job, "reused": reused}), 202
+
+
+@api.post("/admin/runtime/stop")
+def stop_runtime():
+    require_runtime_admin()
+    try:
+        result = runtime_manager().stop(json_body())
+    except RuntimeValidationError as error:
+        raise RequestValidationError(str(error)) from error
+    except RuntimeConflictError as error:
+        raise ResourceConflictError(str(error)) from error
+    return jsonify({"result": result})
+
+
+@api.get("/admin/jobs/<job_id>")
+def get_runtime_job(job_id: str):
+    require_runtime_admin()
+    try:
+        job = runtime_manager().get_job(job_id)
+    except RuntimeJobNotFoundError as error:
+        raise ResourceNotFoundError(str(error)) from error
+    return jsonify({"job": job})

@@ -20,11 +20,13 @@ if ($avds -notcontains $script:AvdName) {
 }
 
 Write-Host "Starting $script:AvdName..."
-Start-Process -FilePath $emulator -ArgumentList @(
+$process = Start-Process -FilePath $emulator -ArgumentList @(
     "-avd", $script:AvdName,
     "-netdelay", "none",
     "-netspeed", "full"
-)
+) -PassThru
+New-Item -ItemType Directory -Path $script:RuntimeRoot -Force | Out-Null
+$process.Id | Set-Content -Path (Join-Path $script:RuntimeRoot "emulator.pid")
 
 $serial = Wait-ForCompatibleDevice -TimeoutSeconds $TimeoutSeconds
 Write-Host "Emulator ready: $serial"

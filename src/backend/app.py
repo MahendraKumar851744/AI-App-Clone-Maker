@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from backend.modules.llm_provider import (
     HTTPChatLLMProvider,
     LLMProviderRegistry,
 )
+from backend.runtime import RuntimeManager
 
 
 def create_app(config: dict[str, Any] | None = None) -> Flask:
@@ -28,6 +30,7 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         JSON_SORT_KEYS=False,
         MAX_CONTENT_LENGTH=2 * 1024 * 1024,
         RUN_STORE_MAX_ITEMS=500,
+        RUNTIME_ADMIN_TOKEN=os.environ.get("RUNTIME_ADMIN_TOKEN"),
         EXPLORATION_OUTPUT_ROOT=(
             Path(__file__).resolve().parents[2]
             / "artifacts"
@@ -78,6 +81,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     app.extensions["screen_context_exporter"] = app.config.get(
         "SCREEN_CONTEXT_EXPORTER"
     ) or ScreenContextExporter(app.config["EXPLORATION_OUTPUT_ROOT"])
+    app.extensions["runtime_manager"] = app.config.get(
+        "RUNTIME_MANAGER"
+    ) or RuntimeManager(Path(__file__).resolve().parents[2])
 
     app.register_blueprint(api)
     register_error_handlers(app)

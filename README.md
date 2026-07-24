@@ -77,6 +77,11 @@ POST   /api/v1/modules/{module_id}/execute
 POST   /api/v1/workflows/execute
 GET    /api/v1/runs
 GET    /api/v1/runs/{run_id}
+GET    /api/v1/admin/runtime/status
+POST   /api/v1/admin/runtime/provision
+POST   /api/v1/admin/runtime/start
+POST   /api/v1/admin/runtime/stop
+GET    /api/v1/admin/jobs/{job_id}
 POST   /api/v1/explorations/open
 POST   /api/v1/explorations/context
 POST   /api/v1/explorations/{run_id}/actions
@@ -84,6 +89,10 @@ POST   /api/v1/explorations/{run_id}/actions
 
 See [docs/backend-api.md](docs/backend-api.md) for request and response
 examples.
+
+See [docs/runtime-provisioning.md](docs/runtime-provisioning.md) for the pinned
+Android/Appium environment status, provisioning jobs, and managed start/stop
+contracts.
 
 For the complete Screen → LLM Context → Monitored Action handoff contract,
 including schemas, every supported action, result classifications, persistence,

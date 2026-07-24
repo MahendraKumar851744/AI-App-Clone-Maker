@@ -4,6 +4,7 @@ import unittest
 from typing import Any
 
 from backend import create_app
+from backend.runtime import RuntimeJobNotFoundError
 
 
 class FakeResponse:
@@ -77,6 +78,42 @@ class FakeScreenContextExporter:
         }
 
 
+class FakeRuntimeManager:
+    def __init__(self):
+        self.calls = []
+        self.job = {
+            "job_id": "job_123",
+            "operation": "provision",
+            "status": "queued",
+            "status_endpoint": "/api/v1/admin/jobs/job_123",
+        }
+
+    def status(self):
+        self.calls.append(("status", None))
+        return {"contract": "appium.runtime_status", "ready": False}
+
+    def provision(self, payload):
+        self.calls.append(("provision", payload))
+        return self.job, False
+
+    def start(self, payload):
+        self.calls.append(("start", payload))
+        return {**self.job, "operation": "start"}, False
+
+    def stop(self, payload):
+        self.calls.append(("stop", payload))
+        return {
+            "contract": "appium.runtime_stop_result",
+            "status": "completed",
+        }
+
+    def get_job(self, job_id):
+        self.calls.append(("get_job", job_id))
+        if job_id != "job_123":
+            raise RuntimeJobNotFoundError("Runtime job does not exist.")
+        return self.job
+
+
 class BackendAPITests(unittest.TestCase):
     def setUp(self):
         self.http_session = FakeHTTPSession()
@@ -85,6 +122,7 @@ class BackendAPITests(unittest.TestCase):
                 "TESTING": True,
                 "HTTP_SESSION": self.http_session,
                 "RUN_STORE_MAX_ITEMS": 20,
+                "RUNTIME_ADMIN_TOKEN": None,
             }
         )
         self.client = self.app.test_client()
@@ -382,6 +420,76 @@ class BackendAPITests(unittest.TestCase):
         self.assertEqual(
             response.get_json()["error"]["code"],
             "unsupported_screen_contract",
+        )
+
+    def test_runtime_administration_endpoints(self):
+        manager = FakeRuntimeManager()
+        self.app.extensions["runtime_manager"] = manager
+
+        status = self.client.get("/api/v1/admin/runtime/status")
+        provision = self.client.post(
+            "/api/v1/admin/runtime/provision",
+            json={
+                "install_missing_prerequisites": False,
+                "accept_android_licenses": True,
+            },
+        )
+        start = self.client.post("/api/v1/admin/runtime/start", json={})
+        stop = self.client.post(
+            "/api/v1/admin/runtime/stop",
+            json={"stop_appium": True, "stop_emulator": False},
+        )
+        job = self.client.get("/api/v1/admin/jobs/job_123")
+
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.get_json()["runtime"]["ready"], False)
+        self.assertEqual(provision.status_code, 202)
+        self.assertFalse(provision.get_json()["reused"])
+        self.assertEqual(start.status_code, 202)
+        self.assertEqual(start.get_json()["job"]["operation"], "start")
+        self.assertEqual(stop.status_code, 200)
+        self.assertEqual(stop.get_json()["result"]["status"], "completed")
+        self.assertEqual(job.status_code, 200)
+        self.assertEqual(job.get_json()["job"]["job_id"], "job_123")
+        self.assertEqual(
+            manager.calls,
+            [
+                ("status", None),
+                (
+                    "provision",
+                    {
+                        "accept_android_licenses": True,
+                        "install_missing_prerequisites": False,
+                    },
+                ),
+                ("start", {}),
+                (
+                    "stop",
+                    {"stop_appium": True, "stop_emulator": False},
+                ),
+                ("get_job", "job_123"),
+            ],
+        )
+
+    def test_unknown_runtime_job_returns_not_found(self):
+        manager = FakeRuntimeManager()
+        self.app.extensions["runtime_manager"] = manager
+
+        response = self.client.get("/api/v1/admin/jobs/job_missing")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.get_json()["error"]["code"], "not_found")
+
+    def test_runtime_administration_rejects_non_loopback_clients(self):
+        response = self.client.get(
+            "/api/v1/admin/runtime/status",
+            environ_base={"REMOTE_ADDR": "192.168.1.50"},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.get_json()["error"]["code"],
+            "access_denied",
         )
 
 

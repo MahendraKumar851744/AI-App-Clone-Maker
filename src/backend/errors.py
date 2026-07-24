@@ -42,6 +42,11 @@ class ResourceConflictError(PlatformError):
     status_code = 409
 
 
+class AccessDeniedError(PlatformError):
+    code = "access_denied"
+    status_code = 403
+
+
 class ModuleExecutionError(PlatformError):
     code = "module_execution_failed"
     status_code = 422
