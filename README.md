@@ -12,6 +12,7 @@ docs/                    API documentation
 scripts/                 Setup and launch commands
 src/backend/
   exploration/           Appium capture, evidence models, and storage
+  workflows/             Bounded orchestration and LLM decision logic
   core/                  Contracts, registry, execution, and templating
   modules/               Logic, HTTP, LLM, and automation modules
   api.py                 HTTP routes
@@ -99,6 +100,9 @@ contracts.
 
 See [docs/app-management-api.md](docs/app-management-api.md) for allow-listed,
 package-verified clean/replace/preserve APK installation and uninstall.
+
+See [workflows/README.md](workflows/README.md) for the first loop-capable,
+LLM-guided workflow built on the Appium HTTP endpoints.
 
 For the complete Screen → LLM Context → Monitored Action handoff contract,
 including schemas, every supported action, result classifications, persistence,

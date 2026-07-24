@@ -18,6 +18,7 @@ dependencies = [
 clone-maker = "backend.__main__:main"
 clone-maker-explore = "backend.exploration.__main__:main"
 clone-maker-context = "backend.exploration.llm_context:main"
+clone-maker-workflow = "backend.workflows.exploration:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
