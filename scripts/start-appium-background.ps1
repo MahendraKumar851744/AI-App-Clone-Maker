@@ -25,7 +25,7 @@ $appiumArguments = "`"$script:AppiumEntryPoint`" --address 127.0.0.1 --port 4723
 $process = Start-Process `
     -FilePath $node.Source `
     -ArgumentList $appiumArguments `
-    -WorkingDirectory $script:ProjectRoot `
+    -WorkingDirectory $script:AppiumRoot `
     -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $script:RuntimeRoot "appium.stdout.log") `
     -RedirectStandardError (Join-Path $script:RuntimeRoot "appium.stderr.log") `

@@ -1,6 +1,6 @@
 param(
     [string]$Udid = "",
-    [double]$Wait = 3
+    [double]$StabilityTimeout = 15
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,12 +15,16 @@ if (-not $Udid) {
     Write-Host "Selected ARMv7-compatible device: $Udid"
 }
 
-$arguments = @("-m", "backend.appium", "--wait", $Wait)
-$arguments += @("--udid", $Udid)
+$arguments = @(
+    "-m", "backend.exploration",
+    $script:Apk,
+    "--udid", $Udid,
+    "--stability-timeout", $StabilityTimeout
+)
 
 & $script:Python @arguments
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-Write-Host "Report: $script:ProjectRoot\artifacts\first_open\report.html"
+Write-Host "Exploration artifacts: $script:ProjectRoot\artifacts\explorations"

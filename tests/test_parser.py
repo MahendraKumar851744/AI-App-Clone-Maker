@@ -1,6 +1,6 @@
 import unittest
 
-from backend.appium.parser import parse_hierarchy, summarize
+from backend.exploration.appium import parse_hierarchy, summarize
 
 
 SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
@@ -24,9 +24,10 @@ class ParserTests(unittest.TestCase):
         records = parse_hierarchy(SAMPLE)
         button = records[2]
         self.assertEqual(button["text"], "Continue")
-        self.assertEqual(button["interaction"], "click")
-        self.assertEqual(button["rect"]["center_x"], 300)
-        self.assertEqual(button["rect"]["height"], 100)
+        self.assertEqual(button["id"], "element_0003")
+        self.assertEqual(button["interaction"], "tap")
+        self.assertEqual(button["bounds"]["center"]["x"], 300)
+        self.assertEqual(button["bounds"]["height"], 100)
         self.assertEqual(
             button["xpath"],
             "/hierarchy[1]/android.widget.FrameLayout[1]/android.widget.Button[1]",

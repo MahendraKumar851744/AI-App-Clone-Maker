@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [switch]$KeepData,
-    [double]$Wait = 5
+    [double]$StabilityTimeout = 15
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,7 +20,12 @@ if (-not $serial) {
 
 & (Join-Path $PSScriptRoot "start-appium-background.ps1")
 
-$arguments = @("-m", "backend.appium", "--udid", $serial, "--wait", $Wait)
+$arguments = @(
+    "-m", "backend.exploration",
+    $script:Apk,
+    "--udid", $serial,
+    "--stability-timeout", $StabilityTimeout
+)
 if ($KeepData) {
     $arguments += "--keep-data"
 }
@@ -30,4 +35,4 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
-Write-Host "Done. Open: $script:ProjectRoot\artifacts\first_open\report.html"
+Write-Host "Done. Explore: $script:ProjectRoot\artifacts\explorations"

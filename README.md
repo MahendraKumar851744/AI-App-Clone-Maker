@@ -11,7 +11,7 @@ assets/                  Bundled test applications
 docs/                    API documentation
 scripts/                 Setup and launch commands
 src/backend/
-  appium/                Android discovery and reporting
+  exploration/           Appium capture, evidence models, and storage
   core/                  Contracts, registry, execution, and templating
   modules/               Logic, HTTP, LLM, and automation modules
   api.py                 HTTP routes
@@ -82,19 +82,34 @@ GET    /api/v1/runs/{run_id}
 See [docs/backend-api.md](docs/backend-api.md) for request and response
 examples.
 
-## Run Android discovery
+## Capture the first Android screen
 
-The included APK requires an `armeabi-v7a` compatible Android device. To start
-the compatible emulator, Appium server, application, and report capture:
+Milestone 1 accepts an APK path, starts an Appium session, captures one stable
+screen, and emits one canonical `appium-result.json`. That document combines
+the screenshot metadata, hierarchy, normalized elements, ADB-verified system
+state, observation summary, collection errors, and references to every raw
+artifact. Each screen directory stays minimal: the canonical JSON, a
+`screenshots/` folder, and an `appium_screen_content.html` viewer. Run-level
+event, graph, and SQLite records remain available for later traversal:
+
+```powershell
+.\scripts\start-appium-background.ps1
+
+.\.runtime\python\Scripts\python.exe -B -m backend.exploration `
+  .\assets\apps\message.apk `
+  --udid emulator-5554
+```
+
+The bundled APK requires an `armeabi-v7a` compatible Android device. The
+end-to-end helper starts the compatible emulator and Appium before capture:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\run-all.ps1
 ```
 
-The report is written to `artifacts/first_open/report.html`. Supporting
-screenshots, hierarchy XML, element JSON/CSV, summary, and metadata are kept in
-the same folder.
+Each run is stored under `artifacts/explorations/{run_id}/`.
+See [docs/exploration.md](docs/exploration.md) for the complete output contract.
 
 To preserve current application data:
 

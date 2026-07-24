@@ -3,7 +3,7 @@ param()
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
-Set-Location $script:ProjectRoot
+Set-Location $script:AppiumRoot
 if (-not (Test-Path $script:AppiumEntryPoint)) {
     throw "Local Appium is not installed. Run .\scripts\setup.ps1 first."
 }
