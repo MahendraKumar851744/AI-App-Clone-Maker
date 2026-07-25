@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from backend.modules.llm_provider import LLMResponse
-from backend.workflows.exploration import SimpleExplorationWorkflow
+from backend.workflows.exploration import SimpleExplorationWorkflow, _load_dotenv
 from backend.workflows.llm import ExplorationLLM, LLMDecisionError
 
 
@@ -20,6 +24,34 @@ class FakeProvider:
             raw={},
             usage={},
         )
+
+
+class DotEnvTests(unittest.TestCase):
+    def test_loads_project_environment_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text(
+                "# local secret\nQWEN_API_KEY='test-key'\n",
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {}, clear=True):
+                _load_dotenv(path)
+                self.assertEqual(os.environ["QWEN_API_KEY"], "test-key")
+
+    def test_existing_environment_value_takes_precedence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text(
+                "QWEN_API_KEY=file-key\n",
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {"QWEN_API_KEY": "process-key"},
+                clear=True,
+            ):
+                _load_dotenv(path)
+                self.assertEqual(os.environ["QWEN_API_KEY"], "process-key")
 
 
 class FakeAppiumClient:

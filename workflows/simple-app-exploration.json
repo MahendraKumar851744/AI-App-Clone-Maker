@@ -1,0 +1,40 @@
+{
+  "api": {
+    "base_url": "http://127.0.0.1:5000",
+    "timeout_seconds": 90,
+    "headers": {}
+  },
+  "llm": {
+    "provider": "http_chat",
+    "max_attempts": 2,
+    "provider_config": {
+      "endpoint": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+      "model": "qwen3.7-plus",
+      "timeout": 180,
+      "api_key_env": "QWEN_API_KEY",
+      "options": {
+        "temperature": 0.1,
+        "enable_thinking": true
+      }
+    }
+  },
+  "workflow": {
+    "apk_path": "assets/apps/message.apk",
+    "expected_package_id": "message.chat.text.messaging.sms",
+    "install_policy": "if_missing",
+    "objective": "Understand the important safe screens and navigation paths.",
+    "max_iterations": 10,
+    "job_timeout_seconds": 3600,
+    "provision_options": {
+      "install_missing_prerequisites": false,
+      "accept_android_licenses": true
+    },
+    "context_options": {
+      "format": "markdown",
+      "include_screenshot_reference": true,
+      "include_device_context": true,
+      "include_system_context": true,
+      "include_capture_quality": true
+    }
+  }
+}

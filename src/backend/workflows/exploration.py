@@ -1,14 +1,13 @@
 from __future__ import annotations
-
 import argparse
 import json
+import os
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable
 from uuid import uuid4
-
 from backend.modules.llm_provider import HTTPChatLLMProvider
 from backend.workflows.client import AppiumHTTPClient
 from backend.workflows.llm import (
@@ -18,11 +17,11 @@ from backend.workflows.llm import (
     ExplorationLLM,
 )
 
-
 JsonObject = dict[str, Any]
 PACKAGE_ID_PATTERN = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$"
 )
+ENVIRONMENT_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 @dataclass
@@ -79,13 +78,11 @@ class SimpleExplorationWorkflow:
             raise ValueError("'max_iterations' must be between 1 and 100.")
         if not 1 <= job_timeout_seconds <= 7200:
             raise ValueError("'job_timeout_seconds' must be between 1 and 7200.")
-
         workflow_id = f"workflow_{uuid4().hex}"
         traces: list[WorkflowStepTrace] = []
         history: list[JsonObject] = []
         decisions: list[JsonObject] = []
         transitions: list[JsonObject] = []
-
         runtime = self._initialize_runtime(
             traces,
             provision_options=dict(provision_options or {}),
@@ -111,7 +108,6 @@ class SimpleExplorationWorkflow:
         run_id = self._required_string(launch, "run_id", "open result")
         screen_id = self._required_string(launch, "screen_id", "open result")
         status = "iteration_limit_reached"
-
         for iteration in range(1, max_iterations + 1):
             screen_ref = {"run_id": run_id, "screen_id": screen_id}
             context = self._step(
@@ -150,7 +146,6 @@ class SimpleExplorationWorkflow:
             )
             assert isinstance(decision, ExplorationDecision)
             decisions.append(decision.to_dict())
-
             if decision.decision == "finish":
                 status = "completed"
                 history.append(
@@ -162,7 +157,6 @@ class SimpleExplorationWorkflow:
                     }
                 )
                 break
-
             action_request = self._step(
                 traces,
                 "build_action_request",
@@ -211,7 +205,6 @@ class SimpleExplorationWorkflow:
                 }
             )
             screen_id = next_screen_id
-
         return {
             "contract": "workflow.simple_app_exploration",
             "schema_version": 1,
@@ -254,8 +247,8 @@ class SimpleExplorationWorkflow:
         ready = bool(initial.get("ready"))
         provision_result = "reused"
         start_result = "reused"
-
         if not provisioned:
+
             submission = self._step(
                 traces,
                 "provision_runtime",
@@ -271,10 +264,15 @@ class SimpleExplorationWorkflow:
                     "reused": result.get("reused"),
                 },
             )
+
             job = submission.get("job")
+
             if not isinstance(job, dict):
+
                 raise RuntimeError("Runtime provisioning did not return a job.")
+
             job_id = self._required_string(job, "job_id", "provision job")
+
             self._step(
                 traces,
                 "wait_for_provisioning",
@@ -288,10 +286,10 @@ class SimpleExplorationWorkflow:
                     "status": result.get("status"),
                 },
             )
+
             provision_result = (
                 "joined_active_job" if submission.get("reused") else "completed"
             )
-
         current = self._step(
             traces,
             "runtime_status_after_provisioning",
@@ -302,10 +300,12 @@ class SimpleExplorationWorkflow:
                 "ready": result.get("ready"),
             },
         )
-        if not current.get("provisioned"):
-            raise RuntimeError("Runtime provisioning did not become ready.")
 
+        if not current.get("provisioned"):
+
+            raise RuntimeError("Runtime provisioning did not become ready.")
         if not current.get("ready"):
+
             submission = self._step(
                 traces,
                 "start_runtime",
@@ -316,10 +316,15 @@ class SimpleExplorationWorkflow:
                     "reused": result.get("reused"),
                 },
             )
+
             job = submission.get("job")
+
             if not isinstance(job, dict):
+
                 raise RuntimeError("Runtime startup did not return a job.")
+
             job_id = self._required_string(job, "job_id", "start job")
+
             self._step(
                 traces,
                 "wait_for_runtime_start",
@@ -333,10 +338,10 @@ class SimpleExplorationWorkflow:
                     "status": result.get("status"),
                 },
             )
+
             start_result = (
                 "joined_active_job" if submission.get("reused") else "completed"
             )
-
         final = self._step(
             traces,
             "verify_runtime_ready",
@@ -347,8 +352,11 @@ class SimpleExplorationWorkflow:
                 "ready": result.get("ready"),
             },
         )
+
         if not final.get("ready"):
+
             raise RuntimeError("Runtime initialization completed without readiness.")
+
         return {
             "provisioning": provision_result,
             "startup": start_result,
@@ -364,6 +372,7 @@ class SimpleExplorationWorkflow:
         install_policy: str,
         device_id: str | None,
     ) -> JsonObject:
+
         installed = self._step(
             traces,
             "inspect_application",
@@ -379,7 +388,9 @@ class SimpleExplorationWorkflow:
                 ),
             },
         )
+
         if installed is not None and install_policy == "if_missing":
+
             return {
                 "status": "reused",
                 "installed": True,
@@ -387,7 +398,6 @@ class SimpleExplorationWorkflow:
                 "version_name": installed.get("version_name"),
                 "version_code": installed.get("version_code"),
             }
-
         install_mode = "preserve" if install_policy == "if_missing" else install_policy
         result = self._step(
             traces,
@@ -459,13 +469,18 @@ class SimpleExplorationWorkflow:
 
 
 def main() -> None:
+
+    _load_dotenv(Path(__file__).resolve().parents[3] / ".env")
+
     parser = argparse.ArgumentParser(
         description="Run the simple LLM-guided Appium exploration workflow."
     )
-    parser.add_argument("config", type=Path, help="Path to workflow JSON.")
-    args = parser.parse_args()
-    config = json.loads(args.config.read_text(encoding="utf-8"))
 
+    parser.add_argument("config", type=Path, help="Path to workflow JSON.")
+
+    args = parser.parse_args()
+
+    config = json.loads(args.config.read_text(encoding="utf-8"))
     api = config.get("api", {})
     llm_config = config.get("llm", {})
     workflow_config = config.get("workflow", {})
@@ -496,11 +511,31 @@ def main() -> None:
         max_iterations=int(workflow_config.get("max_iterations", 10)),
         device_id=workflow_config.get("device_id"),
         provision_options=workflow_config.get("provision_options", {}),
-        job_timeout_seconds=float(
-            workflow_config.get("job_timeout_seconds", 3600)
-        ),
+        job_timeout_seconds=float(workflow_config.get("job_timeout_seconds", 3600)),
     )
     print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+def _load_dotenv(path: Path) -> None:
+    """Load simple KEY=VALUE entries without overriding the process environment."""
+    if not path.is_file():
+        return
+    for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        if "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        name = name.strip()
+        if not ENVIRONMENT_NAME_PATTERN.fullmatch(name):
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        os.environ.setdefault(name, value)
 
 
 if __name__ == "__main__":

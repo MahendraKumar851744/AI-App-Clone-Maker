@@ -6,7 +6,6 @@ from urllib.parse import urlparse
 
 import requests
 
-
 JsonObject = dict[str, Any]
 
 
@@ -24,98 +23,176 @@ class WorkflowHTTPError(RuntimeError):
 
 
 class AppiumHTTPClient:
+
     """Small client for the three Appium HTTP operations used by workflows."""
 
     def __init__(
+
         self,
+
         base_url: str,
+
         *,
+
         session: requests.Session | None = None,
+
         timeout_seconds: float = 90,
+
         headers: dict[str, str] | None = None,
+
     ) -> None:
+
         base_url = base_url.rstrip("/")
+
         parsed = urlparse(base_url)
+
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+
             raise ValueError("'base_url' must be an HTTP or HTTPS URL.")
+
         if not 0 < timeout_seconds <= 300:
+
             raise ValueError("'timeout_seconds' must be between 0 and 300.")
+
         self.base_url = base_url
+
         self.session = session or requests.Session()
+
         self.timeout_seconds = timeout_seconds
+
         self.headers = dict(headers or {})
 
     def runtime_status(self) -> JsonObject:
+
         return self._request(
+
             "GET",
+
             "/api/v1/admin/runtime/status",
+
             {},
+
             result_key="runtime",
+
         )
 
     def provision_runtime(self, options: JsonObject | None = None) -> JsonObject:
+
         return self._request_envelope(
+
             "POST",
+
             "/api/v1/admin/runtime/provision",
+
             dict(options or {}),
+
         )
 
     def start_runtime(self) -> JsonObject:
+
         return self._request_envelope(
+
             "POST",
+
             "/api/v1/admin/runtime/start",
+
             {},
+
         )
 
     def wait_for_job(
+
         self,
+
         job_id: str,
+
         *,
+
         timeout_seconds: float = 3600,
+
         poll_interval_seconds: float = 1,
+
     ) -> JsonObject:
+
         deadline = time.monotonic() + timeout_seconds
+
         while True:
+
             job = self._request(
+
                 "GET",
+
                 f"/api/v1/admin/jobs/{job_id}",
+
                 {},
+
                 result_key="job",
+
             )
+
             if job.get("status") == "succeeded":
+
                 return job
+
             if job.get("status") == "failed":
+
                 raise WorkflowHTTPError(
+
                     "A runtime initialization job failed.",
+
                     details=job,
+
                 )
+
             if time.monotonic() >= deadline:
+
                 raise WorkflowHTTPError(
+
                     "Timed out waiting for runtime initialization.",
+
                     details={"job_id": job_id, "last_job": job},
+
                 )
+
             time.sleep(poll_interval_seconds)
 
     def installed_app(
         self,
+
         package_id: str,
+
         *,
+
         device_id: str | None = None,
+
     ) -> JsonObject | None:
+
         query = f"?device_id={device_id}" if device_id else ""
+
         try:
+
             return self._request(
+
                 "GET",
+
                 f"/api/v1/apps/{package_id}{query}",
+
                 {},
+
                 result_key="app",
+
             )
+
         except WorkflowHTTPError as error:
+
             if error.status_code == 404:
+
                 return None
+
             raise
 
     def install_app(
+
         self,
         *,
         apk_path: str,

@@ -728,6 +728,49 @@ class MilestoneOneTests(unittest.TestCase):
         )
         self.assertEqual(classification, "app_crashed")
 
+    def test_volatile_screen_change_allows_unique_stable_target(self):
+        request = ActionRequest.from_dict(
+            {
+                "screen_id": "screen_123",
+                "action": "tap",
+                "target": {"element_id": "element_0036"},
+            }
+        )
+        expected = {
+            "elements": [
+                {
+                    "id": "element_0036",
+                    "package": "example.app",
+                    "resource_id": "example.app:id/open",
+                    "content_description": "",
+                    "interaction": "tap",
+                    "enabled": True,
+                    "displayed": True,
+                }
+            ]
+        }
+        live = {
+            "elements": [
+                {
+                    "id": "element_0037",
+                    "package": "example.app",
+                    "resource_id": "example.app:id/open",
+                    "content_description": "",
+                    "interaction": "tap",
+                    "enabled": True,
+                    "displayed": True,
+                }
+            ]
+        }
+
+        self.assertTrue(
+            ExplorationActionManager._target_remains_resolvable(
+                request,
+                expected,
+                live,
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,9 @@ Python validates the result and adds the authoritative `screen_id`.
 1. Start the backend.
 2. Copy `simple-app-exploration.example.json` and configure the APK, package, and
    chat-completion-compatible LLM endpoint.
+   The workflow CLI automatically loads secrets from the project-root `.env`
+   file without replacing environment variables already set by the shell.
+   For the Qwen configuration, use `QWEN_API_KEY=...`; never commit `.env`.
 3. If the runtime requires first-time Android setup, explicitly configure the
    provisioning authorization fields.
 4. Run:

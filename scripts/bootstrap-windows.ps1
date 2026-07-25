@@ -122,7 +122,9 @@ if (-not $AcceptAndroidLicenses) {
 }
 
 Write-Host "Accepting Android SDK licenses as explicitly requested..."
-1..100 | & $sdkManager --licenses "--sdk_root=$sdkRoot" | Out-Host
+1..100 | ForEach-Object { "y" } |
+    & $sdkManager --licenses "--sdk_root=$sdkRoot" |
+    Out-Host
 
 Write-Host "Installing Android SDK, emulator, and ARMv7-compatible system image..."
 & $sdkManager "--sdk_root=$sdkRoot" `

@@ -9,3 +9,6 @@ __pycache__/
 *.log
 .runtime/
 .tools/
+.env
+.env.*
+!.env.example

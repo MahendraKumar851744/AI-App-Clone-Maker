@@ -244,14 +244,19 @@ class ExplorationActionManager:
             try:
                 self._validate_live_screen(expected, before_capture.observation)
             except StaleScreenError as error:
-                live_result = managed.store.save_screen(before_capture)
-                error.details.update(
-                    {
-                        "actual_screen_id": live_result.screen_id,
-                        "actual_appium_result": str(live_result.document_path),
-                    }
-                )
-                raise
+                if not self._target_remains_resolvable(
+                    request,
+                    expected,
+                    before_capture.observation,
+                ):
+                    live_result = managed.store.save_screen(before_capture)
+                    error.details.update(
+                        {
+                            "actual_screen_id": live_result.screen_id,
+                            "actual_appium_result": str(live_result.document_path),
+                        }
+                    )
+                    raise
             executor = ActionExecutor(managed.explorer)
             result, after_capture = executor.execute(
                 run_id,
@@ -426,6 +431,52 @@ class ExplorationActionManager:
                     "actual": live_key,
                 },
             )
+
+    @staticmethod
+    def _target_remains_resolvable(
+        request: ActionRequest,
+        expected: JsonObject,
+        live: JsonObject,
+    ) -> bool:
+        """Allow volatile content changes when the chosen target stays unique."""
+        if request.action not in ELEMENT_ACTIONS:
+            return False
+        element_id = request.target.get("element_id")
+        captured = next(
+            (
+                item
+                for item in expected.get("elements", [])
+                if item.get("id") == element_id
+            ),
+            None,
+        )
+        if not isinstance(captured, dict):
+            return False
+        if not captured.get("enabled") or not captured.get("displayed"):
+            return False
+
+        locator_field = next(
+            (
+                field
+                for field in ("resource_id", "content_description")
+                if captured.get(field)
+            ),
+            None,
+        )
+        if locator_field is None:
+            return False
+        locator_value = captured[locator_field]
+        matches = [
+            item
+            for item in live.get("elements", [])
+            if isinstance(item, dict)
+            and item.get(locator_field) == locator_value
+            and item.get("package") == captured.get("package")
+            and item.get("interaction") == captured.get("interaction")
+            and item.get("enabled")
+            and item.get("displayed")
+        ]
+        return len(matches) == 1
 
     @staticmethod
     def _default_explorer(document: JsonObject) -> AppiumExplorer:
