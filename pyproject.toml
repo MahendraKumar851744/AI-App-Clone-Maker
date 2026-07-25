@@ -18,7 +18,9 @@ dependencies = [
 clone-maker = "backend.__main__:main"
 clone-maker-explore = "backend.exploration.__main__:main"
 clone-maker-context = "backend.exploration.llm_context:main"
-clone-maker-workflow = "backend.workflows.exploration:main"
+clone-maker-workflow = "backend.workflows.__main__:main"
+clone-maker-simple-exploration = "backend.workflows.simple_exploration.cli:main"
+clone-maker-init-appium = "backend.workflows.initialize_appium.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

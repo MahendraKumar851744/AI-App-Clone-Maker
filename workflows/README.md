@@ -1,66 +1,61 @@
-# Simple app exploration workflow
+# Workflow catalog
 
-This is the first orchestration layer above the Appium HTTP service.
+Each workflow owns one configuration directory under `workflows/` and one
+implementation package under `src/backend/workflows/`.
 
 ```text
-inspect runtime
-  -> provision only when components are missing
-  -> start only when the device/Appium are not ready
-  -> reuse an existing installed app, or install the APK when absent
-  -> open installed app
-  -> export current screen as LLM context
-  -> build system and user prompts
-  -> ask the LLM for strict JSON
-  -> validate and transform the decision in user-owned logic
-  -> call the generic Appium action endpoint
-  -> repeat with the returned screen pointer
+src/backend/workflows/
+  shared/                 Common client, config, and Appium runtime logic
+  initialize_appium/      Appium initialization and application launch workflow
+  simple_exploration/     Qwen-guided exploration workflow
+  registry.py             Registered workflow names and default configs
+  __main__.py             Common list/run CLI
+
+workflows/
+  initialize_appium/
+    config.json
+  simple_exploration/
+    config.json
+    example.json
 ```
 
-The LLM never calls Appium directly. It selects from captured actions, while
-Python validates the result and adds the authoritative `screen_id`.
+## Commands
 
-## Run
+List registered workflows:
 
-1. Start the backend.
-2. Copy `simple-app-exploration.example.json` and configure the APK, package, and
-   chat-completion-compatible LLM endpoint.
-   The workflow CLI automatically loads secrets from the project-root `.env`
-   file without replacing environment variables already set by the shell.
-   For the Qwen configuration, use `QWEN_API_KEY=...`; never commit `.env`.
-3. If the runtime requires first-time Android setup, explicitly configure the
-   provisioning authorization fields.
-4. Run:
-
-```powershell
-$env:PYTHONPATH = "src"
-python -m backend.workflows.exploration workflows\simple-app-exploration.json
+```cmd
+.\.runtime\python\Scripts\python.exe -B -m backend.workflows list
 ```
 
-The workflow stops when the LLM returns `finish` or `max_iterations` is
-reached. Every HTTP step, LLM decision, action, and screen transition is
-included in the final JSON result.
+Run a workflow with its default configuration:
 
-## Initialization policy
+```cmd
+.\.runtime\python\Scripts\python.exe -B -m backend.workflows run initialize_appium
+```
 
-`install_policy` defaults to `if_missing`.
+```cmd
+.\.runtime\python\Scripts\python.exe -B -m backend.workflows run simple_exploration
+```
 
-- If the expected package is already installed, it is reused without modifying
-  its data.
-- If it is absent, the APK is installed using the non-destructive `preserve`
-  API mode.
-- `clean` removes existing application data and runs only when explicitly set.
-- `replace` updates an installation while preserving data when Android permits.
+Override a workflow configuration:
 
-Runtime provisioning follows the same reuse rule. Provisioning is submitted
-only when `provisioned` is false, and startup is submitted only when `ready` is
-false. Asynchronous jobs are polled to success before the next workflow step.
+```cmd
+.\.runtime\python\Scripts\python.exe -B -m backend.workflows run simple_exploration --config workflows\simple_exploration\example.json
+```
 
-## Separation of responsibilities
+Start the backend before running a workflow:
 
-- `client.py`: only communicates with the Appium HTTP wrapper.
-- `llm.py`: owns prompts, strict JSON parsing, retries, and action validation.
-- `exploration.py`: owns step order, state, history, and the bounded loop.
+```cmd
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\start-backend.ps1"
+```
 
-This initial workflow deliberately does not implement graph-wide backtracking,
-persistence/resume, or autonomous branch coverage. Those can be added after
-the simple loop is verified with real model decisions.
+The shared config loader automatically reads the project-root `.env` without
+overwriting variables already set by the shell. Never commit `.env`.
+
+## Adding another workflow
+
+1. Add `src/backend/workflows/<name>/workflow.py`.
+2. Add `src/backend/workflows/<name>/cli.py` with `run_config(config)`.
+3. Add `workflows/<name>/config.json`.
+4. Register the name, runner, and default config in `registry.py`.
+5. Add isolated workflow tests under `tests/`.

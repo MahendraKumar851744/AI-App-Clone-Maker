@@ -8,8 +8,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.modules.llm_provider import LLMResponse
-from backend.workflows.exploration import SimpleExplorationWorkflow, _load_dotenv
-from backend.workflows.llm import ExplorationLLM, LLMDecisionError
+from backend.workflows.shared.config import load_dotenv
+from backend.workflows.simple_exploration.llm import (
+    ExplorationLLM,
+    LLMDecisionError,
+)
+from backend.workflows.simple_exploration.workflow import (
+    SimpleExplorationWorkflow,
+)
 
 
 class FakeProvider:
@@ -35,7 +41,7 @@ class DotEnvTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with patch.dict(os.environ, {}, clear=True):
-                _load_dotenv(path)
+                load_dotenv(path)
                 self.assertEqual(os.environ["QWEN_API_KEY"], "test-key")
 
     def test_existing_environment_value_takes_precedence(self) -> None:
@@ -50,7 +56,7 @@ class DotEnvTests(unittest.TestCase):
                 {"QWEN_API_KEY": "process-key"},
                 clear=True,
             ):
-                _load_dotenv(path)
+                load_dotenv(path)
                 self.assertEqual(os.environ["QWEN_API_KEY"], "process-key")
 
 

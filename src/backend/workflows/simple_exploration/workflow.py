@@ -1,18 +1,12 @@
 from __future__ import annotations
-import argparse
-import json
-import os
 import re
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable
 from uuid import uuid4
-from backend.modules.llm_provider import HTTPChatLLMProvider
-from backend.workflows.client import AppiumHTTPClient
-from backend.workflows.llm import (
-    SYSTEM_PROMPT,
-    USER_PROMPT,
+from backend.workflows.shared.client import AppiumHTTPClient
+from backend.workflows.shared.runtime import AppiumRuntimeInitializer
+from backend.workflows.simple_exploration.llm import (
     ExplorationDecision,
     ExplorationLLM,
 )
@@ -21,7 +15,6 @@ JsonObject = dict[str, Any]
 PACKAGE_ID_PATTERN = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$"
 )
-ENVIRONMENT_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 @dataclass
@@ -233,134 +226,24 @@ class SimpleExplorationWorkflow:
         provision_options: JsonObject,
         job_timeout_seconds: float,
     ) -> JsonObject:
-        initial = self._step(
-            traces,
-            "runtime_status",
-            None,
-            self.client.runtime_status,
-            lambda result: {
-                "provisioned": result.get("provisioned"),
-                "ready": result.get("ready"),
-            },
+        initializer = AppiumRuntimeInitializer(
+            self.client,
+            execute_step=lambda name, operation, summarize: self._step(
+                traces,
+                name,
+                None,
+                operation,
+                summarize,
+            ),
         )
-        provisioned = bool(initial.get("provisioned"))
-        ready = bool(initial.get("ready"))
-        provision_result = "reused"
-        start_result = "reused"
-        if not provisioned:
-
-            submission = self._step(
-                traces,
-                "provision_runtime",
-                None,
-                lambda: self.client.provision_runtime(
-                    {
-                        **provision_options,
-                        "force": False,
-                    }
-                ),
-                lambda result: {
-                    "job_id": result.get("job", {}).get("job_id"),
-                    "reused": result.get("reused"),
-                },
-            )
-
-            job = submission.get("job")
-
-            if not isinstance(job, dict):
-
-                raise RuntimeError("Runtime provisioning did not return a job.")
-
-            job_id = self._required_string(job, "job_id", "provision job")
-
-            self._step(
-                traces,
-                "wait_for_provisioning",
-                None,
-                lambda: self.client.wait_for_job(
-                    job_id,
-                    timeout_seconds=job_timeout_seconds,
-                ),
-                lambda result: {
-                    "job_id": result.get("job_id"),
-                    "status": result.get("status"),
-                },
-            )
-
-            provision_result = (
-                "joined_active_job" if submission.get("reused") else "completed"
-            )
-        current = self._step(
-            traces,
-            "runtime_status_after_provisioning",
-            None,
-            self.client.runtime_status,
-            lambda result: {
-                "provisioned": result.get("provisioned"),
-                "ready": result.get("ready"),
-            },
+        result = initializer.run(
+            provision_options=provision_options,
+            job_timeout_seconds=job_timeout_seconds,
         )
-
-        if not current.get("provisioned"):
-
-            raise RuntimeError("Runtime provisioning did not become ready.")
-        if not current.get("ready"):
-
-            submission = self._step(
-                traces,
-                "start_runtime",
-                None,
-                self.client.start_runtime,
-                lambda result: {
-                    "job_id": result.get("job", {}).get("job_id"),
-                    "reused": result.get("reused"),
-                },
-            )
-
-            job = submission.get("job")
-
-            if not isinstance(job, dict):
-
-                raise RuntimeError("Runtime startup did not return a job.")
-
-            job_id = self._required_string(job, "job_id", "start job")
-
-            self._step(
-                traces,
-                "wait_for_runtime_start",
-                None,
-                lambda: self.client.wait_for_job(
-                    job_id,
-                    timeout_seconds=job_timeout_seconds,
-                ),
-                lambda result: {
-                    "job_id": result.get("job_id"),
-                    "status": result.get("status"),
-                },
-            )
-
-            start_result = (
-                "joined_active_job" if submission.get("reused") else "completed"
-            )
-        final = self._step(
-            traces,
-            "verify_runtime_ready",
-            None,
-            self.client.runtime_status,
-            lambda result: {
-                "provisioned": result.get("provisioned"),
-                "ready": result.get("ready"),
-            },
-        )
-
-        if not final.get("ready"):
-
-            raise RuntimeError("Runtime initialization completed without readiness.")
-
         return {
-            "provisioning": provision_result,
-            "startup": start_result,
-            "ready": True,
+            "provisioning": result["provisioning"],
+            "startup": result["startup"],
+            "ready": result["ready"],
         }
 
     def _initialize_application(
@@ -469,73 +352,10 @@ class SimpleExplorationWorkflow:
 
 
 def main() -> None:
+    """Backward-compatible entry point for the original module command."""
+    from backend.workflows.simple_exploration.cli import main as cli_main
 
-    _load_dotenv(Path(__file__).resolve().parents[3] / ".env")
-
-    parser = argparse.ArgumentParser(
-        description="Run the simple LLM-guided Appium exploration workflow."
-    )
-
-    parser.add_argument("config", type=Path, help="Path to workflow JSON.")
-
-    args = parser.parse_args()
-
-    config = json.loads(args.config.read_text(encoding="utf-8"))
-    api = config.get("api", {})
-    llm_config = config.get("llm", {})
-    workflow_config = config.get("workflow", {})
-    if llm_config.get("provider", "http_chat") != "http_chat":
-        parser.error("The CLI currently supports llm.provider='http_chat'.")
-    client = AppiumHTTPClient(
-        api.get("base_url", "http://127.0.0.1:5000"),
-        timeout_seconds=float(api.get("timeout_seconds", 90)),
-        headers=api.get("headers", {}),
-    )
-    llm = ExplorationLLM(
-        HTTPChatLLMProvider(),
-        provider_config=llm_config.get("provider_config", {}),
-        system_prompt=llm_config.get("system_prompt") or SYSTEM_PROMPT,
-        user_prompt=llm_config.get("user_prompt") or USER_PROMPT,
-        max_attempts=int(llm_config.get("max_attempts", 2)),
-    )
-    workflow = SimpleExplorationWorkflow(
-        client,
-        llm,
-        context_options=workflow_config.get("context_options", {}),
-    )
-    result = workflow.run(
-        apk_path=workflow_config["apk_path"],
-        expected_package_id=workflow_config["expected_package_id"],
-        objective=workflow_config["objective"],
-        install_policy=workflow_config.get("install_policy", "if_missing"),
-        max_iterations=int(workflow_config.get("max_iterations", 10)),
-        device_id=workflow_config.get("device_id"),
-        provision_options=workflow_config.get("provision_options", {}),
-        job_timeout_seconds=float(workflow_config.get("job_timeout_seconds", 3600)),
-    )
-    print(json.dumps(result, indent=2, ensure_ascii=False))
-
-
-def _load_dotenv(path: Path) -> None:
-    """Load simple KEY=VALUE entries without overriding the process environment."""
-    if not path.is_file():
-        return
-    for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        if "=" not in line:
-            continue
-        name, value = line.split("=", 1)
-        name = name.strip()
-        if not ENVIRONMENT_NAME_PATTERN.fullmatch(name):
-            continue
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-            value = value[1:-1]
-        os.environ.setdefault(name, value)
+    cli_main()
 
 
 if __name__ == "__main__":

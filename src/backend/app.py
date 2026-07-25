@@ -23,6 +23,7 @@ from backend.modules.llm_provider import (
     LLMProviderRegistry,
 )
 from backend.runtime import RuntimeManager
+from backend.workflow_runs import WorkflowRunStore
 
 
 def create_app(config: dict[str, Any] | None = None) -> Flask:
@@ -39,6 +40,11 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
             Path(__file__).resolve().parents[2]
             / "artifacts"
             / "explorations"
+        ),
+        WORKFLOW_OUTPUT_ROOT=(
+            Path(__file__).resolve().parents[2]
+            / "artifacts"
+            / "workflows"
         ),
     )
     if config:
@@ -95,6 +101,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         runtime_manager=app.extensions["runtime_manager"],
         action_manager=app.extensions["exploration_action_manager"],
     )
+    app.extensions["workflow_run_store"] = app.config.get(
+        "WORKFLOW_RUN_STORE"
+    ) or WorkflowRunStore(app.config["WORKFLOW_OUTPUT_ROOT"])
 
     app.register_blueprint(api)
     register_error_handlers(app)

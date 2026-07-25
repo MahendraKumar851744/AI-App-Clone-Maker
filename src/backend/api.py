@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hmac
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request
 
 from backend.apps import (
     AndroidAppManager,
@@ -40,6 +40,11 @@ from backend.runtime import (
     RuntimeManager,
     RuntimeValidationError,
 )
+from backend.workflow_runs import (
+    WorkflowRunNotFoundError,
+    WorkflowRunStore,
+    workflow_viewer_html,
+)
 
 
 api = Blueprint("api", __name__, url_prefix="/api/v1")
@@ -71,6 +76,10 @@ def runtime_manager() -> RuntimeManager:
 
 def android_app_manager() -> AndroidAppManager:
     return current_app.extensions["android_app_manager"]
+
+
+def workflow_run_store() -> WorkflowRunStore:
+    return current_app.extensions["workflow_run_store"]
 
 
 def require_runtime_admin() -> None:
@@ -109,6 +118,109 @@ def health():
             "version": "0.2.0",
         }
     )
+
+
+@api.post("/workflow-runs")
+def create_workflow_run():
+    require_runtime_admin()
+    payload = json_body()
+    name = payload.get("name")
+    metadata = payload.get("metadata", {})
+    if not isinstance(name, str) or not name.strip():
+        raise RequestValidationError("'name' must be a non-empty string.")
+    if not isinstance(metadata, dict):
+        raise RequestValidationError("'metadata' must be an object.")
+    run = workflow_run_store().create(name.strip(), metadata)
+    return jsonify(
+        {
+            "run": run,
+            "viewer_url": (
+                f"{request.host_url.rstrip('/')}"
+                f"/api/v1/workflow-runs/{run['run_id']}/viewer"
+            ),
+        }
+    ), 201
+
+
+@api.get("/workflow-runs/<run_id>")
+def get_workflow_run(run_id: str):
+    try:
+        run = workflow_run_store().get(run_id)
+    except WorkflowRunNotFoundError as error:
+        raise ResourceNotFoundError(str(error)) from error
+    return jsonify({"run": run})
+
+
+@api.get("/workflow-runs/<run_id>/viewer")
+def view_workflow_run(run_id: str):
+    try:
+        workflow_run_store().get(run_id)
+    except WorkflowRunNotFoundError as error:
+        raise ResourceNotFoundError(str(error)) from error
+    return Response(workflow_viewer_html(run_id), mimetype="text/html")
+
+
+@api.post("/workflow-runs/<run_id>/steps")
+def start_workflow_step(run_id: str):
+    require_runtime_admin()
+    payload = json_body()
+    name = payload.get("name")
+    title = payload.get("title")
+    if not isinstance(name, str) or not name.strip():
+        raise RequestValidationError("'name' must be a non-empty string.")
+    if not isinstance(title, str) or not title.strip():
+        raise RequestValidationError("'title' must be a non-empty string.")
+    try:
+        step = workflow_run_store().start_step(
+            run_id,
+            name=name.strip(),
+            title=title.strip(),
+            step_input=payload.get("input"),
+        )
+    except WorkflowRunNotFoundError as error:
+        raise ResourceNotFoundError(str(error)) from error
+    return jsonify({"step": step}), 201
+
+
+@api.post("/workflow-runs/<run_id>/steps/<step_id>/finish")
+def finish_workflow_step(run_id: str, step_id: str):
+    require_runtime_admin()
+    payload = json_body()
+    status = payload.get("status")
+    if status not in {"completed", "failed", "skipped"}:
+        raise RequestValidationError(
+            "'status' must be 'completed', 'failed', or 'skipped'."
+        )
+    try:
+        step = workflow_run_store().finish_step(
+            run_id,
+            step_id,
+            status=status,
+            output=payload.get("output"),
+            error=payload.get("error"),
+        )
+    except WorkflowRunNotFoundError as error:
+        raise ResourceNotFoundError(str(error)) from error
+    return jsonify({"step": step})
+
+
+@api.post("/workflow-runs/<run_id>/finish")
+def finish_workflow_run(run_id: str):
+    require_runtime_admin()
+    payload = json_body()
+    status = payload.get("status")
+    if status not in {"completed", "failed"}:
+        raise RequestValidationError("'status' must be 'completed' or 'failed'.")
+    try:
+        run = workflow_run_store().finish(
+            run_id,
+            status=status,
+            summary=payload.get("summary"),
+            error=payload.get("error"),
+        )
+    except WorkflowRunNotFoundError as error:
+        raise ResourceNotFoundError(str(error)) from error
+    return jsonify({"run": run})
 
 
 @api.get("/module-types")

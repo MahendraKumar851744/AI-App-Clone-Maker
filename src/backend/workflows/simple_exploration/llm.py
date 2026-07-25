@@ -19,6 +19,7 @@ Rules:
 - Never invent an element ID, coordinate, endpoint, or Appium command.
 - Prefer meaningful unexplored navigation over repeated or destructive actions.
 - Do not send messages, make calls, purchase, delete, or change accounts.
+- Do not change default apps, device settings, or grant permissions.
 - Return only one JSON object matching the requested schema.
 
 Output schema:
@@ -28,9 +29,9 @@ Output schema:
   "observations": ["important fact"],
   "action": {
     "action": "supported action name",
-    "target": {},
+    "target": {"element_id": "an exact element_NNNN from AVAILABLE ACTIONS"},
     "parameters": {},
-    "completion": {}
+    "completion": {"condition": "screen_changed"}
   } | null,
   "reason": "why this action or finish was selected",
   "confidence": 0.0
@@ -106,6 +107,18 @@ class ExplorationDecision:
                 raise LLMDecisionError(
                     f"Unsupported action fields: {', '.join(unexpected)}."
                 )
+            try:
+                ActionRequest.from_dict(
+                    {
+                        "screen_id": "screen_validation",
+                        "action": action.get("action"),
+                        "target": action.get("target", {}),
+                        "parameters": action.get("parameters", {}),
+                        "completion": action.get("completion", {}),
+                    }
+                )
+            except (TypeError, ValueError, RuntimeError) as error:
+                raise LLMDecisionError(f"Invalid LLM action: {error}") from error
 
         return cls(
             decision=decision,
@@ -166,6 +179,8 @@ class ExplorationLLM:
         self.system_prompt = system_prompt
         self.user_prompt = user_prompt
         self.max_attempts = max_attempts
+        self.last_exchange: JsonObject | None = None
+        self.exchanges: list[JsonObject] = []
 
     def decide(
         self,
@@ -187,9 +202,31 @@ class ExplorationLLM:
             {"role": "user", "content": user_content},
         ]
         last_error: Exception | None = None
+        self.exchanges = []
 
         for attempt in range(self.max_attempts):
+            request_payload = {
+                "endpoint": self.provider_config.get("endpoint"),
+                "model": self.provider_config.get("model"),
+                "timeout_seconds": self.provider_config.get("timeout", 60),
+                "options": dict(self.provider_config.get("options", {})),
+                "messages": messages,
+                "attempt": attempt + 1,
+            }
+            self.last_exchange = {
+                "request": request_payload,
+                "response": None,
+            }
+            self.exchanges.append(self.last_exchange)
             response = self.provider.generate(messages, self.provider_config)
+            self.last_exchange = {
+                "request": request_payload,
+                "response": {
+                    "text": response.text,
+                    "usage": response.usage,
+                    "provider_payload": response.raw,
+                },
+            }
             try:
                 return ExplorationDecision.from_dict(self._parse_json(response.text))
             except (json.JSONDecodeError, LLMDecisionError) as error:
