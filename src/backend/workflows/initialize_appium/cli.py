@@ -5,6 +5,10 @@ from pathlib import Path
 
 from backend.modules.llm_provider import HTTPChatLLMProvider
 from backend.workflows.initialize_appium.agent import (
+    MEMORY_COMPILER_SYSTEM_PROMPT,
+    MEMORY_COMPILER_USER_PROMPT,
+    SCREEN_ANALYST_SYSTEM_PROMPT,
+    SCREEN_ANALYST_USER_PROMPT,
     ExplorationAgent,
     SYSTEM_PROMPT,
     USER_PROMPT,
@@ -37,6 +41,22 @@ def run_config(config: JsonObject) -> JsonObject:
         provider_config=llm_config.get("provider_config", {}),
         system_prompt=llm_config.get("system_prompt") or SYSTEM_PROMPT,
         user_prompt=llm_config.get("user_prompt") or USER_PROMPT,
+        screen_analyst_system_prompt=(
+            llm_config.get("screen_analyst_system_prompt")
+            or SCREEN_ANALYST_SYSTEM_PROMPT
+        ),
+        screen_analyst_user_prompt=(
+            llm_config.get("screen_analyst_user_prompt")
+            or SCREEN_ANALYST_USER_PROMPT
+        ),
+        memory_compiler_system_prompt=(
+            llm_config.get("memory_compiler_system_prompt")
+            or MEMORY_COMPILER_SYSTEM_PROMPT
+        ),
+        memory_compiler_user_prompt=(
+            llm_config.get("memory_compiler_user_prompt")
+            or MEMORY_COMPILER_USER_PROMPT
+        ),
         max_attempts=int(llm_config.get("max_attempts", 3)),
     )
     reporter = WorkflowLiveReporter(
@@ -46,6 +66,7 @@ def run_config(config: JsonObject) -> JsonObject:
             "mode": "graph_based_agent",
             "objective": workflow_config.get("objective"),
             "max_iterations": workflow_config.get("max_iterations", 25),
+            "memory": workflow_config.get("memory", {}),
             "application": {
                 "apk_path": workflow_config.get("apk_path"),
                 "package_id": workflow_config.get("expected_package_id"),
@@ -81,6 +102,7 @@ def run_config(config: JsonObject) -> JsonObject:
             max_iterations=int(workflow_config.get("max_iterations", 25)),
             device_id=workflow_config.get("device_id"),
             context_options=workflow_config.get("context_options", {}),
+            memory_options=workflow_config.get("memory", {}),
             provision_options=workflow_config.get("provision_options", {}),
             job_timeout_seconds=float(
                 workflow_config.get("job_timeout_seconds", 3600)

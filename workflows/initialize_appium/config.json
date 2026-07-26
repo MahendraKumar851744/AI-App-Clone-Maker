@@ -24,6 +24,10 @@
     "objective": "Exhaustively explore every reachable screen, control, state, feature, workflow, validation path, system interaction, and failure/recovery behavior in the target app.",
     "max_iterations": 25,
     "device_id": null,
+    "memory": {
+      "context_budget_characters": 55000,
+      "summarize_after_changes": 6
+    },
     "context_options": {
       "format": "markdown",
       "include_screenshot_reference": true,

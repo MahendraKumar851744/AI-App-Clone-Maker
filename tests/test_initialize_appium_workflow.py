@@ -5,7 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.workflows.initialize_appium.agent import AgentDecision
+from backend.workflows.initialize_appium.agent import (
+    AgentDecision,
+    MemorySummary,
+    ScreenAnalysis,
+)
 from backend.workflows.initialize_appium.workflow import (
     InitializeAppiumWorkflow,
 )
@@ -24,23 +28,52 @@ def agent_decision(choice: str, *, element_id: str | None = None) -> AgentDecisi
     )
     return AgentDecision(
         decision=choice,
-        screen_summary="A test screen",
-        screen_purpose="Exercise the current feature",
-        observations=["A grounded observation"],
-        controls=(
-            [
-                {
-                    "element_id": element_id,
-                    "label": "Next",
-                    "likely_function": "Open the next screen",
-                }
-            ]
-            if element_id
-            else []
-        ),
-        knowledge_update={
+        blocked_actions=[],
+        action=action,
+        reason="Continue coverage" if choice == "act" else "Coverage is complete",
+        expected_result="A new screen" if choice == "act" else "No action",
+        exploration_goal="Understand navigation",
+        return_plan="Return through Android back navigation",
+        confidence=0.9,
+        coverage_assessment="Test coverage assessment",
+        remaining_areas=[],
+    )
+
+
+def screen_analysis() -> ScreenAnalysis:
+    return ScreenAnalysis(
+        semantic_name="Test screen",
+        screen_type="navigation",
+        functional_purpose="Exercise the current feature",
+        user_goals=["Navigate through the application"],
+        capabilities=["Open the next screen"],
+        entry_conditions=["Application is open"],
+        exit_paths=["Tap Next"],
+        layout_summary="A simple screen with a navigation control",
+        regions=[{"name": "content", "purpose": "Primary navigation"}],
+        visible_content=["Next"],
+        controls=[
+            {
+                "element_id": "element_0001",
+                "label": "Next",
+                "role": "button",
+                "likely_function": "Open the next screen",
+            }
+        ],
+        state_name="default",
+        state_description="The normal visible state",
+        facts=["The current screen was observed"],
+        hypotheses=[],
+        open_questions=[],
+        workflow_updates=[],
+        branch_discoveries=["Navigation is available"],
+        transition_understanding=None,
+        app_knowledge_update={
             "app_summary": "A test application",
             "features": ["Navigation"],
+            "domain_objects": [],
+            "global_ui_patterns": [],
+            "navigation_model": [],
             "facts": ["The current screen was observed"],
             "hypotheses": [],
             "workflows": [],
@@ -48,14 +81,7 @@ def agent_decision(choice: str, *, element_id: str | None = None) -> AgentDecisi
             "open_questions": [],
             "notes": [],
         },
-        blocked_actions=[],
-        action=action,
-        reason="Continue coverage" if choice == "act" else "Coverage is complete",
-        expected_result="A new screen" if choice == "act" else "No action",
-        exploration_goal="Understand navigation",
         confidence=0.9,
-        coverage_assessment="Test coverage assessment",
-        remaining_areas=[],
     )
 
 
@@ -65,6 +91,17 @@ class FakeAgent:
         self.calls: list[dict] = []
         self.exchanges: list[dict] = []
 
+    def analyze_screen(
+        self,
+        *,
+        package_id,
+        objective,
+        iteration,
+        screen_context,
+        analysis_context,
+    ):
+        return screen_analysis()
+
     def decide(
         self,
         *,
@@ -73,7 +110,6 @@ class FakeAgent:
         iteration,
         screen_context,
         graph_context,
-        knowledge_box,
         validator=None,
     ):
         self.calls.append(
@@ -83,13 +119,22 @@ class FakeAgent:
                 "iteration": iteration,
                 "screen_context": screen_context,
                 "graph_context": graph_context,
-                "knowledge_box": knowledge_box,
             }
         )
         decision = self.decisions.pop(0)
         if validator is not None:
             validator(decision)
         return decision
+
+    def summarize_branch(self, *, summary_input):
+        return MemorySummary(
+            branch_summary="A compact branch summary",
+            key_discoveries=[],
+            confirmed_workflows=[],
+            open_questions=[],
+            unresolved_frontier=[],
+            application_knowledge_patch={},
+        )
 
 
 class FakeRuntimeClient:
@@ -342,8 +387,14 @@ class InitializeAppiumWorkflowTests(unittest.TestCase):
                 (output / "knowledge-box.json").read_text("utf-8")
             )
 
-        self.assertEqual(graph["contract"], "workflow.exploration_graph")
-        self.assertEqual(knowledge["contract"], "workflow.app_knowledge_box")
+        self.assertEqual(
+            graph["contract"],
+            "workflow.screen_knowledge_graph",
+        )
+        self.assertEqual(
+            knowledge["contract"],
+            "workflow.application_knowledge",
+        )
         self.assertEqual(graph["status"], "completed")
 
     def test_application_is_not_opened_when_install_cannot_be_verified(self):

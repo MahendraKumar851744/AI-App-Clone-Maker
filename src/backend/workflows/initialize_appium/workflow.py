@@ -12,6 +12,10 @@ from backend.workflows.initialize_appium.agent import (
 
     ExplorationAgent,
 
+    MemorySummary,
+
+    ScreenAnalysis,
+
 )
 
 from backend.workflows.initialize_appium.graph import ExplorationGraphStore
@@ -70,6 +74,8 @@ class InitializeAppiumWorkflow:
 
         context_options: JsonObject | None = None,
 
+        memory_options: JsonObject | None = None,
+
         provision_options: JsonObject | None = None,
 
         job_timeout_seconds: float = 3600,
@@ -86,7 +92,11 @@ class InitializeAppiumWorkflow:
 
             max_iterations=max_iterations,
 
+            memory_options=memory_options,
+
         )
+
+        memory_settings = dict(memory_options or {})
 
         graph = ExplorationGraphStore(
 
@@ -149,6 +159,10 @@ class InitializeAppiumWorkflow:
         current_activity = launch.get("screen", {}).get("activity")
 
         decisions: list[JsonObject] = []
+
+        analyses: list[JsonObject] = []
+
+        memory_summaries: list[JsonObject] = []
 
         status = "iteration_limit_reached"
 
@@ -248,6 +262,32 @@ class InitializeAppiumWorkflow:
 
                     ),
 
+                    screenshot=(
+
+                        str(
+
+                            current_context.get(
+
+                                "visual_evidence",
+
+                                {},
+
+                            ).get("screenshot")
+
+                        )
+
+                        if current_context.get(
+
+                            "visual_evidence",
+
+                            {},
+
+                        ).get("screenshot")
+
+                        else None
+
+                    ),
+
                 ),
 
                 lambda result: {
@@ -274,6 +314,212 @@ class InitializeAppiumWorkflow:
 
             node_id = str(node["node_id"])
 
+            analysis_context = graph.screen_analysis_context(node_id)
+
+            analysis = self._step(
+
+                "analyze_screen",
+
+                lambda: self.agent.analyze_screen(
+
+                    package_id=expected_package_id,
+
+                    objective=objective.strip(),
+
+                    iteration=iteration,
+
+                    screen_context=context_text,
+
+                    analysis_context=analysis_context,
+
+                ),
+
+                lambda result: {
+
+                    "analysis": result.to_dict(),
+
+                    "provider_exchanges": self.agent.exchanges,
+
+                },
+
+                step_input={
+
+                    "iteration": iteration,
+
+                    "node_id": node_id,
+
+                    "screen_context": context_text,
+
+                    "analysis_context": analysis_context,
+
+                },
+
+                title=f"Iteration {iteration}: understand screen dossier",
+
+            )
+
+            if not isinstance(analysis, ScreenAnalysis):
+
+                raise RuntimeError(
+
+                    "The LLM did not return a screen analysis."
+
+                )
+
+            analyses.append(analysis.to_dict())
+
+            self._step(
+
+                "update_screen_dossier",
+
+                lambda: graph.apply_screen_analysis(
+
+                    node_id,
+
+                    screen_id,
+
+                    analysis.to_dict(),
+
+                    evidence={
+
+                        "screenshot": current_context.get(
+
+                            "visual_evidence",
+
+                            {},
+
+                        ).get("screenshot"),
+
+                        "context_contract": current_context.get("contract"),
+
+                    },
+
+                ),
+
+                lambda _result: graph.viewer_snapshot(),
+
+                step_input={
+
+                    "iteration": iteration,
+
+                    "node_id": node_id,
+
+                    "screen_id": screen_id,
+
+                    "analysis": analysis.to_dict(),
+
+                },
+
+                title=f"Iteration {iteration}: update screen dossier",
+
+            )
+
+            if graph.needs_branch_summary(
+
+                node_id,
+
+                context_budget_characters=int(
+
+                    memory_settings.get(
+
+                        "context_budget_characters",
+
+                        55_000,
+
+                    )
+
+                ),
+
+                summarize_after_changes=int(
+
+                    memory_settings.get(
+
+                        "summarize_after_changes",
+
+                        6,
+
+                    )
+
+                ),
+
+            ):
+
+                summary_input = graph.branch_summary_input(node_id)
+
+                summary = self._step(
+
+                    "summarize_branch_memory",
+
+                    lambda: self.agent.summarize_branch(summary_input),
+
+                    lambda result: {
+
+                        "summary": result.to_dict(),
+
+                        "provider_exchanges": self.agent.exchanges,
+
+                    },
+
+                    step_input={
+
+                        "iteration": iteration,
+
+                        "node_id": node_id,
+
+                        "branch_context": summary_input,
+
+                    },
+
+                    title=(
+
+                        f"Iteration {iteration}: compile branch memory"
+
+                    ),
+
+                )
+
+                if not isinstance(summary, MemorySummary):
+
+                    raise RuntimeError(
+
+                        "The LLM did not return a memory summary."
+
+                    )
+
+                memory_summaries.append(summary.to_dict())
+
+                self._step(
+
+                    "update_branch_memory",
+
+                    lambda: graph.apply_branch_summary(
+
+                        summary.to_dict()
+
+                    ),
+
+                    lambda _result: graph.viewer_snapshot(),
+
+                    step_input={
+
+                        "iteration": iteration,
+
+                        "node_id": node_id,
+
+                        "summary": summary.to_dict(),
+
+                    },
+
+                    title=(
+
+                        f"Iteration {iteration}: store branch summary"
+
+                    ),
+
+                )
+
+            planning_context = graph.agent_context(node_id)
+
             decision = self._step(
 
                 "llm_decision",
@@ -288,9 +534,7 @@ class InitializeAppiumWorkflow:
 
                     screen_context=context_text,
 
-                    graph_context=graph.agent_context(node_id),
-
-                    knowledge_box=graph.knowledge,
+                    graph_context=planning_context,
 
                     validator=lambda value: self._validate_decision(
 
@@ -330,9 +574,7 @@ class InitializeAppiumWorkflow:
 
                     "screen_context": context_text,
 
-                    "graph_context": graph.agent_context(node_id),
-
-                    "knowledge_box": graph.knowledge,
+                    "planning_context": planning_context,
 
                 },
 
@@ -348,9 +590,9 @@ class InitializeAppiumWorkflow:
 
             self._step(
 
-                "update_exploration_memory",
+                "update_traversal_plan",
 
-                lambda: graph.apply_agent_understanding(
+                lambda: graph.apply_planning_decision(
 
                     node_id,
 
@@ -366,23 +608,15 @@ class InitializeAppiumWorkflow:
 
                     "node_id": node_id,
 
-                    "screen_understanding": {
-
-                        "summary": decision.screen_summary,
-
-                        "purpose": decision.screen_purpose,
-
-                        "observations": decision.observations,
-
-                    },
-
-                    "knowledge_update": decision.knowledge_update,
-
                     "blocked_actions": decision.blocked_actions,
+
+                    "exploration_goal": decision.exploration_goal,
+
+                    "return_plan": decision.return_plan,
 
                 },
 
-                title=f"Iteration {iteration}: update agent memory",
+                title=f"Iteration {iteration}: store traversal plan",
 
             )
 
@@ -457,6 +691,14 @@ class InitializeAppiumWorkflow:
                     action_request=action_request,
 
                     action_result=action_result,
+
+                    expectation={
+
+                        "expected_result": decision.expected_result,
+
+                        "preconditions": [],
+
+                    },
 
                 ),
 
@@ -538,7 +780,7 @@ class InitializeAppiumWorkflow:
 
             "contract": "workflow.agentic_app_exploration",
 
-            "schema_version": 1,
+            "schema_version": 2,
 
             "status": status,
 
@@ -565,6 +807,10 @@ class InitializeAppiumWorkflow:
             "iterations": len(decisions),
 
             "decisions": decisions,
+
+            "screen_analyses": analyses,
+
+            "memory_summaries": memory_summaries,
 
             **graph_snapshot,
 
@@ -735,6 +981,8 @@ class InitializeAppiumWorkflow:
 
         max_iterations: int,
 
+        memory_options: JsonObject | None,
+
     ) -> None:
 
         if not isinstance(apk_path, str) or not apk_path.strip():
@@ -752,6 +1000,27 @@ class InitializeAppiumWorkflow:
         if not 1 <= max_iterations <= 100:
 
             raise ValueError("'max_iterations' must be between 1 and 100.")
+
+        memory = dict(memory_options or {})
+
+        for field, default in (
+            ("context_budget_characters", 55_000),
+            ("summarize_after_changes", 6),
+        ):
+
+            value = memory.get(field, default)
+
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value < 1
+            ):
+
+                raise ValueError(
+
+                    f"'memory.{field}' must be a positive integer."
+
+                )
 
     @staticmethod
     def _validate_decision(
@@ -814,7 +1083,21 @@ class InitializeAppiumWorkflow:
 
         action_name = str(action_request.get("action"))
 
-        recovery_actions = {"back", "recover", "wait", "activate_app"}
+        recovery_actions = {
+
+            "back",
+
+            "recover",
+
+            "wait",
+
+            "activate_app",
+
+            "restart_app",
+
+            "return_to_start",
+
+        }
 
         if (
 
