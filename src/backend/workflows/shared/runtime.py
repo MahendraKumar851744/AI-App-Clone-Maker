@@ -180,6 +180,241 @@ class AppiumRuntimeInitializer:
 
         }
 
+    def ensure_provisioned(
+
+        self,
+
+        *,
+
+        provision_options: JsonObject | None = None,
+
+        job_timeout_seconds: float = 3600,
+
+    ) -> JsonObject:
+
+        if not 1 <= job_timeout_seconds <= 7200:
+
+            raise ValueError("'job_timeout_seconds' must be between 1 and 7200.")
+
+        initial = self._step(
+
+            "runtime_status",
+
+            self.client.runtime_status,
+
+            self._runtime_summary,
+
+        )
+
+        provision_status = "reused"
+
+        if not initial.get("provisioned"):
+
+            submission = self._step(
+
+                "provision_runtime",
+
+                lambda: self.client.provision_runtime(
+
+                    {
+
+                        **dict(provision_options or {}),
+
+                        "force": False,
+
+                    }
+
+                ),
+
+                self._submission_summary,
+
+            )
+
+            self._wait_for_submission(
+
+                submission,
+
+                operation="provision",
+
+                step_name="wait_for_provisioning",
+
+                timeout_seconds=job_timeout_seconds,
+
+            )
+
+            provision_status = (
+
+                "joined_active_job"
+
+                if submission.get("reused")
+
+                else "completed"
+
+            )
+
+        final = self._step(
+
+            "runtime_status_after_provisioning",
+
+            self.client.runtime_status,
+
+            self._runtime_summary,
+
+        )
+
+        if not final.get("provisioned"):
+
+            raise RuntimeError("Appium runtime provisioning did not complete.")
+
+        return {
+
+            "provisioning": provision_status,
+
+            "runtime": final,
+
+        }
+
+    def ensure_started_for_device(
+
+        self,
+
+        device_id: str,
+
+        *,
+
+        job_timeout_seconds: float = 3600,
+
+    ) -> JsonObject:
+
+        if not isinstance(device_id, str) or not device_id.strip():
+
+            raise ValueError("'device_id' must be a non-empty string.")
+
+        if not 1 <= job_timeout_seconds <= 7200:
+
+            raise ValueError("'job_timeout_seconds' must be between 1 and 7200.")
+
+        device_id = device_id.strip()
+
+        current = self._step(
+
+            "runtime_status_before_startup",
+
+            self.client.runtime_status,
+
+            self._runtime_summary,
+
+        )
+
+        if not current.get("provisioned"):
+
+            raise RuntimeError("Appium runtime provisioning did not complete.")
+
+        start_status = "reused"
+
+        if not self._device_runtime_ready(current, device_id):
+
+            submission = self._step(
+
+                "start_runtime",
+
+                lambda: self.client.start_runtime(
+
+                    {
+
+                        "start_emulator": False,
+
+                        "device_id": device_id,
+
+                    }
+
+                ),
+
+                self._submission_summary,
+
+            )
+
+            self._wait_for_submission(
+
+                submission,
+
+                operation="start",
+
+                step_name="wait_for_runtime_start",
+
+                timeout_seconds=job_timeout_seconds,
+
+            )
+
+            start_status = (
+
+                "joined_active_job"
+
+                if submission.get("reused")
+
+                else "completed"
+
+            )
+
+        final = self._step(
+
+            "verify_runtime_ready",
+
+            self.client.runtime_status,
+
+            self._runtime_summary,
+
+        )
+
+        if not self._device_runtime_ready(final, device_id):
+
+            raise RuntimeError(
+
+                "Appium did not become ready for the selected Android device."
+
+            )
+
+        return {
+
+            "startup": start_status,
+
+            "ready": True,
+
+            "runtime": final,
+
+        }
+
+    @staticmethod
+    def _device_runtime_ready(
+
+        result: JsonObject,
+
+        device_id: str,
+
+    ) -> bool:
+
+        if not (
+
+            result.get("provisioned")
+
+            and result.get("appium", {}).get("server_ready")
+
+        ):
+
+            return False
+
+        return any(
+
+            device.get("serial") == device_id
+
+            and device.get("state") == "device"
+
+            and device.get("boot_completed")
+
+            for device in result.get("devices", [])
+
+        )
+
     def _wait_for_submission(
 
         self,

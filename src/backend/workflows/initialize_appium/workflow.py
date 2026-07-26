@@ -134,13 +134,15 @@ class InitializeAppiumWorkflow:
 
         )
 
-        initialization = AppiumRuntimeInitializer(
+        runtime_initializer = AppiumRuntimeInitializer(
 
             self.client,
 
             execute_step=self._execute_runtime_step,
 
-        ).run(
+        )
+
+        provisioning = runtime_initializer.ensure_provisioned(
 
             provision_options=provision_options,
 
@@ -191,6 +193,26 @@ class InitializeAppiumWorkflow:
             "device preparation result",
 
         )
+
+        startup = runtime_initializer.ensure_started_for_device(
+
+            selected_device_id,
+
+            job_timeout_seconds=job_timeout_seconds,
+
+        )
+
+        initialization = {
+
+            "provisioning": provisioning["provisioning"],
+
+            "startup": startup["startup"],
+
+            "ready": True,
+
+            "runtime": startup["runtime"],
+
+        }
 
         application_status, verified_application = self._initialize_application(
 

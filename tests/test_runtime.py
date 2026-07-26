@@ -167,6 +167,46 @@ class RuntimeManagerTests(unittest.TestCase):
             self.assertEqual(completed["status"], "failed")
             self.assertIn("Complete provisioning first", completed["error"])
 
+    def test_appium_only_start_does_not_launch_fixed_emulator(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = {
+                "provisioned": True,
+                "ready": False,
+                "appium": {"server_ready": False},
+                "devices": [
+                    {
+                        "serial": "emulator-5580",
+                        "state": "device",
+                        "boot_completed": True,
+                    }
+                ],
+            }
+            commands = []
+
+            def runner(command, _cwd, _output, _timeout_seconds):
+                commands.append(command)
+                state["appium"] = {"server_ready": True}
+                return 0
+
+            manager = RuntimeManager(
+                directory,
+                command_runner=runner,
+                status_provider=lambda: dict(state),
+            )
+            manager._powershell_script = lambda name: [name]
+
+            submitted, reused = manager.start(
+                {
+                    "start_emulator": False,
+                    "device_id": "emulator-5580",
+                }
+            )
+            completed = wait_for_job(manager, submitted["job_id"])
+
+            self.assertFalse(reused)
+            self.assertEqual(completed["status"], "succeeded")
+            self.assertEqual(commands, [["start-appium-background.ps1"]])
+
 
 if __name__ == "__main__":
     unittest.main()

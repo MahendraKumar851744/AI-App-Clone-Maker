@@ -164,17 +164,21 @@ class RuntimeManager:
             return dict(job), False
 
     def start(self, payload: JsonObject) -> tuple[JsonObject, bool]:
-        self._empty_payload(payload, "runtime start")
+        options = self._start_options(payload)
         with self._lock:
             active = self._active_job("start")
             if active is not None:
+                if active.get("request") != options:
+                    raise RuntimeConflictError(
+                        "Runtime startup is already active with different options."
+                    )
                 return dict(active), True
             if self._active_job("provision") is not None:
                 raise RuntimeConflictError(
                     "Runtime provisioning is still active."
                 )
-            job = self._new_job("start", {})
-            self._start_job(job, lambda: self._start_task(job))
+            job = self._new_job("start", options)
+            self._start_job(job, lambda: self._start_task(job, options))
             return dict(job), False
 
     def stop(self, payload: JsonObject) -> JsonObject:
@@ -296,34 +300,55 @@ class RuntimeManager:
             )
         self._succeed_job(job, result={"runtime": final_status})
 
-    def _start_task(self, job: JsonObject) -> None:
+    def _start_task(
+        self,
+        job: JsonObject,
+        options: JsonObject,
+    ) -> None:
         current = self.status()
         if not current.get("provisioned"):
             raise RuntimeError(
                 "Runtime is not provisioned. Complete provisioning first."
             )
-        commands = [
-            self._powershell_script("start-emulator.ps1"),
-            self._powershell_script("start-appium-background.ps1"),
-        ]
-        for index, command in enumerate(commands, start=1):
+        commands = []
+
+        if options["start_emulator"]:
+            commands.append(
+                (
+                    "start_emulator",
+                    20,
+                    self._powershell_script("start-emulator.ps1"),
+                    240,
+                )
+            )
+
+        commands.append(
+            (
+                "start_appium",
+                70,
+                self._powershell_script("start-appium-background.ps1"),
+                150,
+            )
+        )
+
+        for step, progress, command, timeout_seconds in commands:
             self._update_job(
                 job,
-                step="start_emulator" if index == 1 else "start_appium",
-                progress=20 if index == 1 else 70,
+                step=step,
+                progress=progress,
             )
             exit_code = self.command_runner(
                 command,
                 self.project_root,
                 lambda line: self._job_output(job, line),
-                240 if index == 1 else 150,
+                timeout_seconds,
             )
             if exit_code != 0:
                 raise RuntimeError(
                     f"Runtime start command failed with exit code {exit_code}."
                 )
         final_status = self.status()
-        if not final_status.get("ready"):
+        if not self._startup_ready(final_status, options):
             raise RuntimeError(
                 "Start commands completed but the runtime did not become ready."
             )
@@ -857,6 +882,32 @@ class RuntimeManager:
             for item in devices
         )
 
+    @staticmethod
+    def _startup_ready(
+        status: JsonObject,
+        options: JsonObject,
+    ) -> bool:
+        if options["start_emulator"]:
+            return bool(status.get("ready"))
+
+        if not (
+            status.get("provisioned")
+            and status.get("appium", {}).get("server_ready")
+        ):
+            return False
+
+        device_id = options.get("device_id")
+
+        if not device_id:
+            return True
+
+        return any(
+            item.get("serial") == device_id
+            and item.get("state") == "device"
+            and item.get("boot_completed")
+            for item in status.get("devices", [])
+        )
+
     def _managed_process(
         self,
         pid_name: str,
@@ -992,3 +1043,51 @@ class RuntimeManager:
             raise RuntimeValidationError(
                 f"{operation} request must be an empty JSON object."
             )
+
+    @staticmethod
+    def _start_options(payload: JsonObject) -> JsonObject:
+        if not isinstance(payload, dict):
+            raise RuntimeValidationError(
+                "Runtime start request must be a JSON object."
+            )
+
+        allowed = {"start_emulator", "device_id"}
+        unexpected = sorted(set(payload) - allowed)
+
+        if unexpected:
+            raise RuntimeValidationError(
+                "Unsupported runtime start fields: "
+                + ", ".join(unexpected)
+                + "."
+            )
+
+        start_emulator = payload.get("start_emulator", True)
+
+        if not isinstance(start_emulator, bool):
+            raise RuntimeValidationError(
+                "'start_emulator' must be a boolean."
+            )
+
+        device_id = payload.get("device_id")
+
+        if device_id is not None and (
+            not isinstance(device_id, str)
+            or not device_id.strip()
+        ):
+            raise RuntimeValidationError(
+                "'device_id' must be a non-empty string or null."
+            )
+
+        if start_emulator and device_id is not None:
+            raise RuntimeValidationError(
+                "'device_id' is only supported when 'start_emulator' is false."
+            )
+
+        return {
+            "start_emulator": start_emulator,
+            "device_id": (
+                device_id.strip()
+                if isinstance(device_id, str)
+                else None
+            ),
+        }

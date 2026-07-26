@@ -148,6 +148,7 @@ class FakeRuntimeClient:
         self.statuses = list(statuses)
         self.provision_calls = []
         self.start_calls = 0
+        self.start_options = []
         self.waited_jobs = []
         self.app = installed_app
         self.install_calls = []
@@ -205,15 +206,32 @@ class FakeRuntimeClient:
 
     def runtime_status(self):
         if len(self.statuses) > 1:
-            return self.statuses.pop(0)
-        return self.statuses[0]
+            status = self.statuses.pop(0)
+        else:
+            status = self.statuses[0]
+
+        if status.get("ready"):
+            return {
+                **status,
+                "appium": {"server_ready": True},
+                "devices": [
+                    {
+                        "serial": "emulator-5554",
+                        "state": "device",
+                        "boot_completed": True,
+                    }
+                ],
+            }
+
+        return status
 
     def provision_runtime(self, options):
         self.provision_calls.append(options)
         return {"job": {"job_id": "job_provision"}, "reused": False}
 
-    def start_runtime(self):
+    def start_runtime(self, options=None):
         self.start_calls += 1
+        self.start_options.append(dict(options or {}))
         return {"job": {"job_id": "job_start"}, "reused": False}
 
     def wait_for_job(self, job_id, *, timeout_seconds):
@@ -326,6 +344,7 @@ class InitializeAppiumWorkflowTests(unittest.TestCase):
             [
                 {"provisioned": False, "ready": False},
                 {"provisioned": True, "ready": False},
+                {"provisioned": True, "ready": False},
                 {"provisioned": True, "ready": True},
             ],
         )
@@ -345,6 +364,15 @@ class InitializeAppiumWorkflowTests(unittest.TestCase):
         self.assertEqual(result["provisioning"], "completed")
         self.assertEqual(result["startup"], "completed")
         self.assertEqual(client.start_calls, 1)
+        self.assertEqual(
+            client.start_options,
+            [
+                {
+                    "start_emulator": False,
+                    "device_id": "emulator-5554",
+                }
+            ],
+        )
         self.assertEqual(client.install_calls[0]["install_mode"], "preserve")
 
     def test_agent_action_creates_graph_edge_and_next_screen_node(self):

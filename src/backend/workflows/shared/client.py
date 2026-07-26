@@ -88,7 +88,13 @@ class AppiumHTTPClient:
 
         )
 
-    def start_runtime(self) -> JsonObject:
+    def start_runtime(
+
+        self,
+
+        options: JsonObject | None = None,
+
+    ) -> JsonObject:
 
         return self._request_envelope(
 
@@ -96,7 +102,7 @@ class AppiumHTTPClient:
 
             "/api/v1/admin/runtime/start",
 
-            {},
+            dict(options or {}),
 
         )
 

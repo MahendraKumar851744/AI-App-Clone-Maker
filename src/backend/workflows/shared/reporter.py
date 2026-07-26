@@ -15,6 +15,7 @@ STEP_TITLES = {
     "provision_runtime": "Provision Appium runtime",
     "wait_for_provisioning": "Wait for provisioning",
     "runtime_status_after_provisioning": "Verify provisioning",
+    "runtime_status_before_startup": "Check selected-device runtime",
     "start_runtime": "Start emulator and Appium",
     "wait_for_runtime_start": "Wait for runtime startup",
     "verify_runtime_ready": "Verify Appium is ready",
