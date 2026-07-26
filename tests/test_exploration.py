@@ -5,6 +5,7 @@ import unittest
 from contextlib import closing
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -460,6 +461,35 @@ class MilestoneOneTests(unittest.TestCase):
             finally:
                 manager.close_all()
 
+    def test_package_launch_retries_transient_adb_session_failure(self):
+        driver = FakeDriver()
+        attempts = []
+
+        def create_driver(_url, _capabilities):
+            attempts.append(len(attempts) + 1)
+
+            if len(attempts) == 1:
+                raise RuntimeError("adb command failed: error: closed")
+
+            return driver
+
+        explorer = AppiumExplorer(
+            keep_data=True,
+            stability_timeout=0.2,
+            stability_interval=0.001,
+            system_probe=FakeSystemProbe(),
+            driver_factory=create_driver,
+        )
+        explorer._require_server = lambda: None
+
+        with patch("backend.exploration.appium.time.sleep"):
+            apk, session = explorer.start_package("example.app")
+
+        self.assertEqual(attempts, [1, 2])
+        self.assertEqual(apk.package, "example.app")
+        self.assertEqual(session.session_id, driver.session_id)
+        self.assertEqual(driver.activated_packages, ["example.app"])
+
     def test_appium_observation_captures_app_and_system_state(self):
         apk = ApkMetadata(
             path=Path("sample.apk"),
@@ -508,6 +538,7 @@ class MilestoneOneTests(unittest.TestCase):
             capture.observation["screen"]["window_size"],
             {"width": 1080, "height": 1920},
         )
+
         self.assertEqual(
             capture.observation["hierarchy"]["node_count"],
             len(capture.observation["elements"]),
@@ -549,6 +580,34 @@ class MilestoneOneTests(unittest.TestCase):
         repeated_context = build_llm_context(repeated)
         self.assertIn("## VISIBLE TEXT (3 occurrences)", repeated_context)
         self.assertIn("[element_duplicate]", repeated_context)
+
+    def test_appium_prefers_direct_adb_screenshot(self):
+        expected = FakeDriver().get_screenshot_as_png()
+
+        class ScreenshotProbe(FakeSystemProbe):
+            def screenshot(self, udid):
+                self.screenshot_udid = udid
+                return expected
+
+        class DriverWithoutScreenshot:
+            def get_screenshot_as_png(self):
+                raise AssertionError("Appium screenshot transport must not be used.")
+
+        probe = ScreenshotProbe()
+        explorer = AppiumExplorer(system_probe=probe)
+        explorer.driver = DriverWithoutScreenshot()
+        explorer.session = SessionInfo(
+            session_id="session-1",
+            server_url="http://127.0.0.1:4723",
+            device_name="Test Android",
+            udid="emulator-5554",
+            capabilities={},
+        )
+
+        screenshot = explorer._capture_screenshot()
+
+        self.assertEqual(screenshot, expected)
+        self.assertEqual(probe.screenshot_udid, "emulator-5554")
 
     def test_captures_and_persists_one_complete_screen(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -465,6 +465,74 @@ class AdbSystemProbe:
             },
         }
 
+    def screenshot(self, udid: str) -> bytes:
+
+        if self.adb_path is None:
+
+            raise RuntimeError("ADB was not found.")
+
+        creation_flags = (
+
+            subprocess.CREATE_NO_WINDOW
+
+            if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
+
+            else 0
+
+        )
+
+        result = self.runner(
+
+            [
+
+                str(self.adb_path),
+
+                "-s",
+
+                udid,
+
+                "exec-out",
+
+                "screencap",
+
+                "-p",
+
+            ],
+
+            capture_output=True,
+
+            timeout=30,
+
+            creationflags=creation_flags,
+
+            check=False,
+
+        )
+
+        screenshot = bytes(result.stdout or b"")
+
+        if result.returncode != 0 or not screenshot.startswith(
+
+            b"\x89PNG\r\n\x1a\n"
+
+        ):
+
+            error = result.stderr or b""
+
+            if isinstance(error, bytes):
+
+                error = error.decode("utf-8", errors="replace")
+
+            raise RuntimeError(
+
+                "ADB screenshot capture failed: "
+
+                + str(error).strip()
+
+            )
+
+        return screenshot
+
     def collect_action_health(
         self,
         udid: str,
@@ -746,7 +814,7 @@ class AppiumExplorer:
         self.apk = self.inspector.inspect(apk_path)
         self._require_server()
         capabilities = self._capabilities(self.apk)
-        self._create_session(capabilities)
+        self._create_session_with_adb_recovery(capabilities)
         self._wait_until_stable()
         return self.apk, self.session
 
@@ -763,7 +831,7 @@ class AppiumExplorer:
         )
         self._require_server()
         capabilities = self._package_capabilities(package_id)
-        self._create_session(capabilities)
+        self._create_session_with_adb_recovery(capabilities)
         self.driver.activate_app(package_id)
         self._wait_until_stable()
         return self.apk, self.session
@@ -785,12 +853,91 @@ class AppiumExplorer:
             capabilities=actual_capabilities,
         )
 
+    def _create_session_with_adb_recovery(
+
+        self,
+
+        capabilities: JsonObject,
+
+        *,
+
+        max_attempts: int = 3,
+
+    ) -> None:
+
+        for attempt in range(1, max_attempts + 1):
+
+            try:
+
+                self._create_session(capabilities)
+
+                return
+
+            except Exception as error:
+
+                self.driver = None
+
+                self.session = None
+
+                if (
+
+                    attempt >= max_attempts
+
+                    or not self._is_transient_adb_session_error(error)
+
+                ):
+
+                    raise
+
+                time.sleep(3)
+
+        raise RuntimeError("Appium session recovery attempts were exhausted.")
+
+    @staticmethod
+    def _is_transient_adb_session_error(error: Exception) -> bool:
+
+        message = str(error).lower()
+
+        return any(
+
+            signal in message
+
+            for signal in (
+
+                "error: closed",
+
+                "device offline",
+
+                "no connected devices have been detected",
+
+                "could not find online devices",
+
+                "device unauthorized",
+
+            )
+
+        )
+
+    def _capture_screenshot(self) -> bytes:
+
+        if self.driver is None or self.session is None:
+
+            raise RuntimeError("Appium session has not been started.")
+
+        adb_screenshot = getattr(self.system_probe, "screenshot", None)
+
+        if callable(adb_screenshot) and self.session.udid:
+
+            return bytes(adb_screenshot(self.session.udid))
+
+        return bytes(self.driver.get_screenshot_as_png())
+
     def observe(self) -> ScreenCapture:
         if self.driver is None or self.apk is None or self.session is None:
             raise RuntimeError("Appium session has not been started.")
 
         hierarchy, stability = self._wait_until_stable()
-        screenshot = bytes(self.driver.get_screenshot_as_png())
+        screenshot = self._capture_screenshot()
         collection_errors: list[JsonObject] = []
 
         current_package = self._safe(
