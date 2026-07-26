@@ -646,6 +646,13 @@ class RuntimeManager:
             serial, state = parts[0], parts[1]
             boot_completed = False
             abi_list = None
+            api_level = None
+            android_version = None
+            model = None
+            page_size_bytes = None
+            avd_name = None
+            features: list[str] = []
+            is_emulator = serial.startswith("emulator-")
             if state == "device":
                 boot_completed = (
                     self._capture(
@@ -670,12 +677,88 @@ class RuntimeManager:
                         "ro.product.cpu.abilist",
                     ]
                 ).strip()
+                api_level = self._integer(
+                    self._capture(
+                        [
+                            str(adb_path),
+                            "-s",
+                            serial,
+                            "shell",
+                            "getprop",
+                            "ro.build.version.sdk",
+                        ]
+                    ).strip()
+                )
+                android_version = self._capture(
+                    [
+                        str(adb_path),
+                        "-s",
+                        serial,
+                        "shell",
+                        "getprop",
+                        "ro.build.version.release",
+                    ]
+                ).strip()
+                model = self._capture(
+                    [
+                        str(adb_path),
+                        "-s",
+                        serial,
+                        "shell",
+                        "getprop",
+                        "ro.product.model",
+                    ]
+                ).strip()
+                page_size_bytes = self._integer(
+                    self._capture(
+                        [
+                            str(adb_path),
+                            "-s",
+                            serial,
+                            "shell",
+                            "getconf",
+                            "PAGE_SIZE",
+                        ]
+                    ).strip()
+                )
+                avd_name = self._capture(
+                    [
+                        str(adb_path),
+                        "-s",
+                        serial,
+                        "shell",
+                        "getprop",
+                        "ro.boot.qemu.avd_name",
+                    ]
+                ).strip() or None
+                features = [
+                    line.partition(":")[2].strip()
+                    for line in self._capture(
+                        [
+                            str(adb_path),
+                            "-s",
+                            serial,
+                            "shell",
+                            "pm",
+                            "list",
+                            "features",
+                        ]
+                    ).splitlines()
+                    if line.startswith("feature:")
+                ]
             devices.append(
                 {
                     "serial": serial,
                     "state": state,
                     "boot_completed": boot_completed,
                     "abi_list": abi_list,
+                    "api_level": api_level,
+                    "android_version": android_version,
+                    "model": model,
+                    "is_emulator": is_emulator,
+                    "page_size_bytes": page_size_bytes,
+                    "avd_name": avd_name,
+                    "features": features,
                     "compatible": bool(
                         abi_list
                         and PROFILE["required_abi"] in abi_list.split(",")
@@ -683,6 +766,14 @@ class RuntimeManager:
                 }
             )
         return devices
+
+    @staticmethod
+    def _integer(value: Any) -> int | None:
+
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     def _avds(self, emulator_path: Any) -> list[str]:
         if not emulator_path:

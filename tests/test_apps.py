@@ -58,6 +58,39 @@ class FakeInspector:
         return self.metadata
 
 
+class FakeDeviceCoordinator:
+    def __init__(self):
+        self.calls = []
+
+    def inventory(self, requirements):
+        self.calls.append(("inventory", requirements))
+        return {
+            "connected_devices": [],
+            "candidate_avds": [],
+        }
+
+    def ensure_device(
+        self,
+        requirements,
+        *,
+        requested_device_id,
+        options,
+    ):
+        self.calls.append(
+            (
+                "ensure_device",
+                requirements,
+                requested_device_id,
+                options,
+            )
+        )
+        return {
+            "status": "ready",
+            "device_id": requested_device_id or "emulator-5556",
+            "verification": {"verified": True},
+        }
+
+
 class FakeAdb:
     def __init__(self, *, installed=True):
         self.installed = installed
@@ -235,6 +268,56 @@ class AndroidAppManagerTests(unittest.TestCase):
             self.assertEqual(result["status"], "uninstalled")
             self.assertTrue(result["verification"]["verified"])
             self.assertEqual(actions.closed_packages, [PACKAGE])
+
+    def test_preflight_and_prepare_use_inspected_apk_requirements(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk = root / "arm64.apk"
+            apk.write_bytes(b"apk")
+            inspected = ApkMetadata(
+                path=apk,
+                sha256="a" * 64,
+                size_bytes=3,
+                package=PACKAGE,
+                min_sdk="24",
+                target_sdk="36",
+                native_abis=("arm64-v8a",),
+                supports_16kb_page_size=True,
+            )
+            coordinator = FakeDeviceCoordinator()
+            manager = AndroidAppManager(
+                allowed_apk_roots=[root],
+                runtime_manager=FakeRuntimeManager(),
+                action_manager=FakeActionManager(),
+                inspector=FakeInspector(inspected),
+                device_coordinator=coordinator,
+                runner=FakeAdb(installed=False),
+            )
+
+            preflight = manager.preflight(
+                {
+                    "apk_path": str(apk),
+                    "expected_package_id": PACKAGE,
+                }
+            )
+            prepared = manager.prepare_device(
+                {
+                    "apk_path": str(apk),
+                    "expected_package_id": PACKAGE,
+                    "options": {"allow_provision": True},
+                }
+            )
+
+        self.assertEqual(
+            preflight["requirements"]["native_abis"],
+            ["arm64-v8a"],
+        )
+        self.assertTrue(
+            preflight["requirements"]["supports_16kb_page_size"]
+        )
+        self.assertEqual(prepared["device_id"], "emulator-5556")
+        self.assertEqual(coordinator.calls[0][0], "inventory")
+        self.assertEqual(coordinator.calls[1][0], "ensure_device")
 
 
 if __name__ == "__main__":

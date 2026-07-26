@@ -67,6 +67,10 @@ def run_config(config: JsonObject) -> JsonObject:
             "objective": workflow_config.get("objective"),
             "max_iterations": workflow_config.get("max_iterations", 25),
             "memory": workflow_config.get("memory", {}),
+            "device_selection": workflow_config.get(
+                "device_selection",
+                {},
+            ),
             "application": {
                 "apk_path": workflow_config.get("apk_path"),
                 "package_id": workflow_config.get("expected_package_id"),
@@ -101,6 +105,10 @@ def run_config(config: JsonObject) -> JsonObject:
             objective=workflow_config["objective"],
             max_iterations=int(workflow_config.get("max_iterations", 25)),
             device_id=workflow_config.get("device_id"),
+            device_selection_options=workflow_config.get(
+                "device_selection",
+                {},
+            ),
             context_options=workflow_config.get("context_options", {}),
             memory_options=workflow_config.get("memory", {}),
             provision_options=workflow_config.get("provision_options", {}),

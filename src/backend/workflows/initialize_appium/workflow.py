@@ -72,6 +72,8 @@ class InitializeAppiumWorkflow:
 
         device_id: str | None = None,
 
+        device_selection_options: JsonObject | None = None,
+
         context_options: JsonObject | None = None,
 
         memory_options: JsonObject | None = None,
@@ -98,6 +100,30 @@ class InitializeAppiumWorkflow:
 
         memory_settings = dict(memory_options or {})
 
+        preflight = self._step(
+
+            "inspect_apk_requirements",
+
+            lambda: self.client.preflight_application(
+
+                apk_path=apk_path.strip(),
+
+                expected_package_id=expected_package_id,
+
+            ),
+
+            lambda result: result,
+
+            step_input={
+
+                "apk_path": apk_path.strip(),
+
+                "expected_package_id": expected_package_id,
+
+            },
+
+        )
+
         graph = ExplorationGraphStore(
 
             package_id=expected_package_id,
@@ -122,13 +148,57 @@ class InitializeAppiumWorkflow:
 
         )
 
+        device_preparation = self._step(
+
+            "prepare_compatible_device",
+
+            lambda: self.client.prepare_application_device(
+
+                apk_path=apk_path.strip(),
+
+                expected_package_id=expected_package_id,
+
+                device_id=device_id,
+
+                options=dict(device_selection_options or {}),
+
+            ),
+
+            lambda result: result,
+
+            step_input={
+
+                "apk_requirements": preflight.get("requirements"),
+
+                "requested_device_id": device_id,
+
+                "selection_options": dict(
+
+                    device_selection_options or {}
+
+                ),
+
+            },
+
+        )
+
+        selected_device_id = self._required_string(
+
+            device_preparation,
+
+            "device_id",
+
+            "device preparation result",
+
+        )
+
         application_status, verified_application = self._initialize_application(
 
             apk_path=apk_path.strip(),
 
             expected_package_id=expected_package_id,
 
-            device_id=device_id,
+            device_id=selected_device_id,
 
         )
 
@@ -136,13 +206,21 @@ class InitializeAppiumWorkflow:
 
             "open_application",
 
-            lambda: self.client.open_application(expected_package_id),
+            lambda: self.client.open_application(
+
+                expected_package_id,
+
+                device_id=selected_device_id,
+
+            ),
 
             lambda result: result,
 
             step_input={
 
                 "package_id": expected_package_id,
+
+                "device_id": selected_device_id,
 
             },
 
@@ -799,6 +877,12 @@ class InitializeAppiumWorkflow:
                 "version_code": verified_application.get("version_code"),
 
             },
+
+            "apk_preflight": preflight,
+
+            "device_preparation": device_preparation,
+
+            "device_id": selected_device_id,
 
             "run_id": run_id,
 

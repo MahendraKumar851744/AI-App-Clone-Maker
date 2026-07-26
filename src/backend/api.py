@@ -389,13 +389,96 @@ def install_android_app():
     except AppNotFoundError as error:
         raise ResourceNotFoundError(str(error)) from error
     except AppConflictError as error:
-        raise ResourceConflictError(str(error)) from error
+        raise ResourceConflictError(
+            str(error),
+            details=error.details,
+        ) from error
     except AppOperationError as error:
         raise ExternalServiceError(
             str(error),
             details=error.details,
         ) from error
     return jsonify({"result": result}), 201
+
+
+@api.post("/apps/preflight")
+def preflight_android_app():
+
+    require_runtime_admin()
+
+    try:
+
+        result = android_app_manager().preflight(json_body())
+
+    except AppValidationError as error:
+
+        raise RequestValidationError(str(error)) from error
+
+    except AppNotFoundError as error:
+
+        raise ResourceNotFoundError(str(error)) from error
+
+    except AppConflictError as error:
+
+        raise ResourceConflictError(
+
+            str(error),
+
+            details=error.details,
+
+        ) from error
+
+    except AppOperationError as error:
+
+        raise ExternalServiceError(
+
+            str(error),
+
+            details=error.details,
+
+        ) from error
+
+    return jsonify({"result": result})
+
+
+@api.post("/apps/prepare-device")
+def prepare_android_device():
+
+    require_runtime_admin()
+
+    try:
+
+        result = android_app_manager().prepare_device(json_body())
+
+    except AppValidationError as error:
+
+        raise RequestValidationError(str(error)) from error
+
+    except AppNotFoundError as error:
+
+        raise ResourceNotFoundError(str(error)) from error
+
+    except AppConflictError as error:
+
+        raise ResourceConflictError(
+
+            str(error),
+
+            details=error.details,
+
+        ) from error
+
+    except AppOperationError as error:
+
+        raise ExternalServiceError(
+
+            str(error),
+
+            details=error.details,
+
+        ) from error
+
+    return jsonify({"result": result})
 
 
 @api.get("/apps/<package_id>")
@@ -411,7 +494,10 @@ def get_installed_android_app(package_id: str):
     except AppNotFoundError as error:
         raise ResourceNotFoundError(str(error)) from error
     except AppConflictError as error:
-        raise ResourceConflictError(str(error)) from error
+        raise ResourceConflictError(
+            str(error),
+            details=error.details,
+        ) from error
     except AppOperationError as error:
         raise ExternalServiceError(
             str(error),
@@ -430,7 +516,10 @@ def uninstall_android_app(package_id: str):
     except AppNotFoundError as error:
         raise ResourceNotFoundError(str(error)) from error
     except AppConflictError as error:
-        raise ResourceConflictError(str(error)) from error
+        raise ResourceConflictError(
+            str(error),
+            details=error.details,
+        ) from error
     except AppOperationError as error:
         raise ExternalServiceError(
             str(error),

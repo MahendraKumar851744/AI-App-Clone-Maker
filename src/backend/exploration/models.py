@@ -21,6 +21,8 @@ class ApkMetadata:
     min_sdk: str | None = None
     target_sdk: str | None = None
     native_abis: tuple[str, ...] = ()
+    required_features: tuple[str, ...] = ()
+    supports_16kb_page_size: bool | None = None
     inspector: str | None = None
     warnings: tuple[str, ...] = ()
 
@@ -28,6 +30,7 @@ class ApkMetadata:
         data = asdict(self)
         data["path"] = str(self.path) if self.path is not None else None
         data["native_abis"] = list(self.native_abis)
+        data["required_features"] = list(self.required_features)
         data["warnings"] = list(self.warnings)
         return data
 

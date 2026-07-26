@@ -221,6 +221,12 @@ class ApkInspector:
             reason = (result.stderr or result.stdout).strip()
             raise RuntimeError(f"Unable to inspect APK metadata with aapt: {reason}")
         values = self.parse_badging(result.stdout)
+        native_abis = tuple(values.get("native_abis", []))
+        supports_16kb = self._supports_16kb_page_size(
+            aapt,
+            apk,
+            native_abis,
+        )
         return ApkMetadata(
             path=apk,
             sha256=digest.hexdigest(),
@@ -232,9 +238,52 @@ class ApkInspector:
             version_code=values.get("version_code"),
             min_sdk=values.get("min_sdk"),
             target_sdk=values.get("target_sdk"),
-            native_abis=tuple(values.get("native_abis", [])),
+            native_abis=native_abis,
+            required_features=tuple(
+                values.get("required_features", [])
+            ),
+            supports_16kb_page_size=supports_16kb,
             inspector=str(aapt),
         )
+
+    def _supports_16kb_page_size(
+        self,
+        aapt: Path,
+        apk: Path,
+        native_abis: tuple[str, ...],
+    ) -> bool | None:
+
+        if not native_abis:
+            return True
+
+        executable = (
+            "zipalign.exe"
+            if os.name == "nt"
+            else "zipalign"
+        )
+        zipalign = aapt.with_name(executable)
+
+        if not zipalign.is_file():
+            return None
+
+        result = self.runner(
+            [
+                str(zipalign),
+                "-c",
+                "-P",
+                "16",
+                "-v",
+                "4",
+                str(apk),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+
+        return result.returncode == 0
 
     def _find_aapt(self) -> Path | None:
         roots: list[Path | None] = [self.sdk_root]
@@ -285,6 +334,15 @@ class ApkInspector:
                 for item in re.findall(r"'([^']+)'", native_line)
                 if item in ANDROID_ABIS
             ],
+            "required_features": sorted(
+                set(
+                    re.findall(
+                        r"^uses-feature:\s+name='([^']+)'",
+                        output,
+                        re.MULTILINE,
+                    )
+                )
+            ),
         }
 
 

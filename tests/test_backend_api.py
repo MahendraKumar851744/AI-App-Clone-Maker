@@ -126,6 +126,25 @@ class FakeAndroidAppManager:
             "package_id": payload["expected_package_id"],
         }
 
+    def preflight(self, payload):
+        self.calls.append(("preflight", payload))
+        return {
+            "contract": "appium.apk_device_preflight",
+            "status": "inspected",
+            "requirements": {
+                "native_abis": ["arm64-v8a"],
+                "minimum_api_level": 24,
+            },
+        }
+
+    def prepare_device(self, payload):
+        self.calls.append(("prepare_device", payload))
+        return {
+            "contract": "appium.apk_device_preparation",
+            "status": "ready",
+            "device_id": "emulator-5556",
+        }
+
     def get(self, package_id, *, device_id=None):
         self.calls.append(("get", package_id, device_id))
         return {
@@ -532,6 +551,21 @@ class BackendAPITests(unittest.TestCase):
         }
 
         installed = self.client.post("/api/v1/apps/install", json=payload)
+        preflight = self.client.post(
+            "/api/v1/apps/preflight",
+            json={
+                "apk_path": payload["apk_path"],
+                "expected_package_id": payload["expected_package_id"],
+            },
+        )
+        prepared = self.client.post(
+            "/api/v1/apps/prepare-device",
+            json={
+                "apk_path": payload["apk_path"],
+                "expected_package_id": payload["expected_package_id"],
+                "options": {"auto_start_avd": True},
+            },
+        )
         inspected = self.client.get(
             "/api/v1/apps/message.chat.text.messaging.sms"
             "?device_id=emulator-5554"
@@ -543,6 +577,16 @@ class BackendAPITests(unittest.TestCase):
 
         self.assertEqual(installed.status_code, 201)
         self.assertEqual(installed.get_json()["result"]["status"], "installed")
+        self.assertEqual(preflight.status_code, 200)
+        self.assertEqual(
+            preflight.get_json()["result"]["requirements"]["native_abis"],
+            ["arm64-v8a"],
+        )
+        self.assertEqual(prepared.status_code, 200)
+        self.assertEqual(
+            prepared.get_json()["result"]["device_id"],
+            "emulator-5556",
+        )
         self.assertEqual(inspected.status_code, 200)
         self.assertTrue(inspected.get_json()["app"]["installed"])
         self.assertEqual(removed.status_code, 200)
@@ -551,6 +595,25 @@ class BackendAPITests(unittest.TestCase):
             manager.calls,
             [
                 ("install", payload),
+                (
+                    "preflight",
+                    {
+                        "apk_path": payload["apk_path"],
+                        "expected_package_id": payload[
+                            "expected_package_id"
+                        ],
+                    },
+                ),
+                (
+                    "prepare_device",
+                    {
+                        "apk_path": payload["apk_path"],
+                        "expected_package_id": payload[
+                            "expected_package_id"
+                        ],
+                        "options": {"auto_start_avd": True},
+                    },
+                ),
                 (
                     "get",
                     "message.chat.text.messaging.sms",

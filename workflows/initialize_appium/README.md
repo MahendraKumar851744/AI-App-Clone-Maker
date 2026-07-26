@@ -3,6 +3,17 @@
 This workflow ensures Appium is ready, verifies and opens the configured
 application, and then starts an LLM-centered application research agent.
 
+Before installation, it now inspects the selected APK and derives its native
+ABIs, minimum/target Android API, package identity, launch activity, and 16 KB
+native-library alignment. It inventories connected devices and configured
+AVDs, reuses a compatible device when possible, otherwise starts and verifies
+AVD candidates, and can provision a compatible profile when enabled.
+
+Static AVD metadata is treated only as a candidate signal. After boot, ADB must
+confirm a matching ABI, sufficient API level, compatible memory page size, and
+completed boot. The verified device ID is then used consistently for package
+inspection, APK installation, and Appium launch.
+
 Each iteration deliberately separates three responsibilities:
 
 1. The screen analyst builds or revises the current screen's detailed dossier.
@@ -40,3 +51,16 @@ The iteration budget, objective, and memory thresholds are configured in
 `config.json`. `memory.context_budget_characters` triggers summarization when a
 focused context grows too large, while `memory.summarize_after_changes` keeps
 long-running branches compact even before the size limit is reached.
+
+Device behavior is configured under `workflow.device_selection`:
+
+```json
+{
+  "auto_start_avd": true,
+  "allow_provision": true,
+  "boot_timeout_seconds": 300
+}
+```
+
+Set `workflow.device_id` to a serial only when a particular connected device
+must be used. Leave it `null` for automatic evidence-based selection.

@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from backend.core.contracts import JsonObject
+from backend.device_selection import (
+    AndroidDeviceCoordinator,
+    DeviceSelectionError,
+    apk_requirement_profile,
+    evaluate_device,
+)
 from backend.exploration.actions import ExplorationActionManager
 from backend.exploration.appium import ApkInspector
 from backend.exploration.models import ApkMetadata
@@ -32,7 +38,22 @@ class AppNotFoundError(AppManagementError):
 
 
 class AppConflictError(AppManagementError):
-    pass
+
+    def __init__(
+
+        self,
+
+        message: str,
+
+        *,
+
+        details: JsonObject | None = None,
+
+    ) -> None:
+
+        super().__init__(message)
+
+        self.details = details or {}
 
 
 class AppOperationError(AppManagementError):
@@ -51,6 +72,7 @@ class AndroidAppManager:
         runtime_manager: RuntimeManager,
         action_manager: ExplorationActionManager,
         inspector: ApkInspector | None = None,
+        device_coordinator: AndroidDeviceCoordinator | None = None,
         runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     ) -> None:
         self.allowed_apk_roots = [
@@ -59,30 +81,128 @@ class AndroidAppManager:
         self.runtime_manager = runtime_manager
         self.action_manager = action_manager
         self.inspector = inspector or ApkInspector()
+        self.device_coordinator = (
+
+            device_coordinator
+
+            or AndroidDeviceCoordinator(
+
+                project_root=self.allowed_apk_roots[0].parents[1],
+
+                runtime_manager=runtime_manager,
+
+            )
+
+        )
         self.runner = runner
+
+    def preflight(self, payload: JsonObject) -> JsonObject:
+
+        request = self._preflight_request(payload)
+
+        metadata = self._inspect_apk(
+
+            request["apk_path"],
+
+            request.get("expected_package_id"),
+
+        )
+
+        requirements = apk_requirement_profile(metadata)
+
+        inventory = self.device_coordinator.inventory(requirements)
+
+        return {
+
+            "contract": "appium.apk_device_preflight",
+
+            "schema_version": 1,
+
+            "status": "inspected",
+
+            "apk": metadata.to_dict(),
+
+            "requirements": requirements,
+
+            "device_inventory": inventory,
+
+        }
+
+    def prepare_device(self, payload: JsonObject) -> JsonObject:
+
+        request = self._prepare_device_request(payload)
+
+        metadata = self._inspect_apk(
+
+            request["apk_path"],
+
+            request.get("expected_package_id"),
+
+        )
+
+        requirements = apk_requirement_profile(metadata)
+
+        try:
+
+            selection = self.device_coordinator.ensure_device(
+
+                requirements,
+
+                requested_device_id=request.get("device_id"),
+
+                options=request.get("options"),
+
+            )
+
+        except DeviceSelectionError as error:
+
+            raise AppConflictError(
+
+                str(error),
+
+                details=error.details,
+
+            ) from error
+
+        return {
+
+            "contract": "appium.apk_device_preparation",
+
+            "schema_version": 1,
+
+            "status": "ready",
+
+            "apk": metadata.to_dict(),
+
+            "requirements": requirements,
+
+            "device_selection": selection,
+
+            "device_id": selection["device_id"],
+
+        }
 
     def install(self, payload: JsonObject) -> JsonObject:
         request = self._install_request(payload)
-        apk_path = self._resolve_apk(request["apk_path"])
-        try:
-            metadata = self.inspector.inspect(apk_path)
-        except Exception as error:
-            raise AppOperationError(f"APK inspection failed: {error}") from error
+        metadata = self._inspect_apk(
+
+            request["apk_path"],
+
+            request["expected_package_id"],
+
+        )
+
+        apk_path = metadata.path
+
+        if apk_path is None:
+
+            raise AppOperationError("The inspected APK path is unavailable.")
+
         expected_package = request["expected_package_id"]
-        if not metadata.package:
-            raise AppOperationError(
-                "APK package identity could not be determined. Ensure Android "
-                "build-tools/aapt is available."
-            )
-        if metadata.package != expected_package:
-            raise AppConflictError(
-                f"APK package '{metadata.package}' does not match expected "
-                f"package '{expected_package}'."
-            )
 
         runtime = self.runtime_manager.status()
         adb, device = self._select_device(runtime, request.get("device_id"))
-        self._validate_abi(metadata, device)
+        self._validate_runtime_requirements(metadata, device)
         started = time.monotonic()
         previous = self._package_status(
             adb,
@@ -257,6 +377,58 @@ class AndroidAppManager:
             raise AppValidationError("'apk_path' must reference an .apk file.")
         return path
 
+    def _inspect_apk(
+
+        self,
+
+        apk_path: str,
+
+        expected_package_id: str | None,
+
+    ) -> ApkMetadata:
+
+        resolved = self._resolve_apk(apk_path)
+
+        try:
+
+            metadata = self.inspector.inspect(resolved)
+
+        except Exception as error:
+
+            raise AppOperationError(
+
+                f"APK inspection failed: {error}"
+
+            ) from error
+
+        if not metadata.package:
+
+            raise AppOperationError(
+
+                "APK package identity could not be determined. Ensure "
+
+                "Android build-tools/aapt is available."
+
+            )
+
+        if (
+
+            expected_package_id
+
+            and metadata.package != expected_package_id
+
+        ):
+
+            raise AppConflictError(
+
+                f"APK package '{metadata.package}' does not match expected "
+
+                f"package '{expected_package_id}'."
+
+            )
+
+        return metadata
+
     @staticmethod
     def _within(path: Path, root: Path) -> bool:
         try:
@@ -305,28 +477,41 @@ class AndroidAppManager:
         if (
             device.get("state") != "device"
             or not device.get("boot_completed")
-            or not device.get("compatible")
         ):
             raise AppConflictError(
-                f"Android device '{device.get('serial')}' is not ready and "
-                "compatible with the pinned runtime profile."
+                f"Android device '{device.get('serial')}' is not fully "
+                "connected and booted."
             )
         return str(adb), device
 
     @staticmethod
-    def _validate_abi(metadata: ApkMetadata, device: JsonObject) -> None:
-        if not metadata.native_abis:
-            return
-        device_abis = {
-            item.strip()
-            for item in str(device.get("abi_list") or "").split(",")
-            if item.strip()
-        }
-        if not device_abis.intersection(metadata.native_abis):
+    def _validate_runtime_requirements(
+        metadata: ApkMetadata,
+        device: JsonObject,
+    ) -> None:
+
+        assessment = evaluate_device(
+
+            apk_requirement_profile(metadata),
+
+            device,
+
+        )
+
+        if not assessment["compatible"]:
+
             raise AppConflictError(
-                "APK native ABIs are incompatible with the selected device: "
-                f"APK={list(metadata.native_abis)}, "
-                f"device={sorted(device_abis)}."
+
+                "The selected Android device is incompatible with the APK.",
+
+                details={
+
+                    "requirements": apk_requirement_profile(metadata),
+
+                    "device_assessment": assessment,
+
+                },
+
             )
 
     def _package_status(
@@ -505,6 +690,130 @@ class AndroidAppManager:
             "expected_package_id": package,
             "install_mode": mode,
             "device_id": device_id,
+        }
+
+    @staticmethod
+    def _preflight_request(payload: JsonObject) -> JsonObject:
+
+        if not isinstance(payload, dict):
+
+            raise AppValidationError("Request body must be a JSON object.")
+
+        allowed = {"apk_path", "expected_package_id"}
+
+        unexpected = sorted(set(payload) - allowed)
+
+        if unexpected:
+
+            raise AppValidationError(
+
+                f"Unsupported preflight fields: {', '.join(unexpected)}."
+
+            )
+
+        apk_path = payload.get("apk_path")
+
+        if not isinstance(apk_path, str) or not apk_path.strip():
+
+            raise AppValidationError(
+
+                "'apk_path' must be a non-empty string."
+
+            )
+
+        expected = payload.get("expected_package_id")
+
+        if expected is not None:
+
+            expected = AndroidAppManager._package_id(expected)
+
+        return {
+
+            "apk_path": apk_path,
+
+            "expected_package_id": expected,
+
+        }
+
+    @staticmethod
+    def _prepare_device_request(payload: JsonObject) -> JsonObject:
+
+        if not isinstance(payload, dict):
+
+            raise AppValidationError("Request body must be a JSON object.")
+
+        allowed = {
+
+            "apk_path",
+
+            "expected_package_id",
+
+            "device_id",
+
+            "options",
+
+        }
+
+        unexpected = sorted(set(payload) - allowed)
+
+        if unexpected:
+
+            raise AppValidationError(
+
+                (
+
+                    "Unsupported device-preparation fields: "
+
+                    f"{', '.join(unexpected)}."
+
+                )
+
+            )
+
+        base = AndroidAppManager._preflight_request(
+
+            {
+
+                key: value
+
+                for key, value in payload.items()
+
+                if key in {"apk_path", "expected_package_id"}
+
+            }
+
+        )
+
+        device_id = payload.get("device_id")
+
+        if device_id is not None and (
+
+            not isinstance(device_id, str)
+
+            or not device_id.strip()
+
+        ):
+
+            raise AppValidationError(
+
+                "'device_id' must be a non-empty string."
+
+            )
+
+        options = payload.get("options", {})
+
+        if not isinstance(options, dict):
+
+            raise AppValidationError("'options' must be an object.")
+
+        return {
+
+            **base,
+
+            "device_id": device_id,
+
+            "options": dict(options),
+
         }
 
     @staticmethod

@@ -22,6 +22,8 @@ STEP_TITLES = {
     "install_application": "Install the missing application",
     "verify_application": "Verify the application",
     "open_application": "Open the application",
+    "inspect_apk_requirements": "Inspect APK runtime requirements",
+    "prepare_compatible_device": "Select and verify a compatible device",
     "export_screen_context": "Generate LLM screen context",
     "analyze_screen": "Build the current screen dossier",
     "llm_decision": "Ask the traversal planner for the next action",

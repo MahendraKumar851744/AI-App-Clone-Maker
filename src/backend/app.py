@@ -13,6 +13,7 @@ from backend.apps import AndroidAppManager
 from backend.core.executor import ModuleExecutor, RunStore
 from backend.core.registry import ModuleRegistry
 from backend.core.templating import TemplateRenderer
+from backend.device_selection import AndroidDeviceCoordinator
 from backend.errors import PlatformError
 from backend.exploration.actions import ExplorationActionManager
 from backend.exploration.context_export import ScreenContextExporter
@@ -27,6 +28,7 @@ from backend.workflow_runs import WorkflowRunStore
 
 
 def create_app(config: dict[str, Any] | None = None) -> Flask:
+    project_root = Path(__file__).resolve().parents[2]
     app = Flask(__name__)
     app.config.from_mapping(
         JSON_SORT_KEYS=False,
@@ -34,15 +36,15 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         RUN_STORE_MAX_ITEMS=500,
         RUNTIME_ADMIN_TOKEN=os.environ.get("RUNTIME_ADMIN_TOKEN"),
         APP_APK_ROOTS=[
-            Path(__file__).resolve().parents[2] / "assets" / "apps"
+            project_root / "assets" / "apps"
         ],
         EXPLORATION_OUTPUT_ROOT=(
-            Path(__file__).resolve().parents[2]
+            project_root
             / "artifacts"
             / "explorations"
         ),
         WORKFLOW_OUTPUT_ROOT=(
-            Path(__file__).resolve().parents[2]
+            project_root
             / "artifacts"
             / "workflows"
         ),
@@ -93,13 +95,17 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     ) or ScreenContextExporter(app.config["EXPLORATION_OUTPUT_ROOT"])
     app.extensions["runtime_manager"] = app.config.get(
         "RUNTIME_MANAGER"
-    ) or RuntimeManager(Path(__file__).resolve().parents[2])
+    ) or RuntimeManager(project_root)
     app.extensions["android_app_manager"] = app.config.get(
         "ANDROID_APP_MANAGER"
     ) or AndroidAppManager(
         allowed_apk_roots=list(app.config["APP_APK_ROOTS"]),
         runtime_manager=app.extensions["runtime_manager"],
         action_manager=app.extensions["exploration_action_manager"],
+        device_coordinator=AndroidDeviceCoordinator(
+            project_root=project_root,
+            runtime_manager=app.extensions["runtime_manager"],
+        ),
     )
     app.extensions["workflow_run_store"] = app.config.get(
         "WORKFLOW_RUN_STORE"

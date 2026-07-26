@@ -233,7 +233,119 @@ class AppiumHTTPClient:
 
         )
 
-    def open_application(self, package_id: str) -> JsonObject:
+    def preflight_application(
+
+        self,
+
+        *,
+
+        apk_path: str,
+
+        expected_package_id: str,
+
+    ) -> JsonObject:
+
+        return self._request(
+
+            "POST",
+
+            "/api/v1/apps/preflight",
+
+            {
+
+                "apk_path": apk_path,
+
+                "expected_package_id": expected_package_id,
+
+            },
+
+            result_key="result",
+
+        )
+
+    def prepare_application_device(
+
+        self,
+
+        *,
+
+        apk_path: str,
+
+        expected_package_id: str,
+
+        device_id: str | None,
+
+        options: JsonObject | None = None,
+
+    ) -> JsonObject:
+
+        payload = {
+
+            "apk_path": apk_path,
+
+            "expected_package_id": expected_package_id,
+
+            "options": dict(options or {}),
+
+        }
+
+        if device_id:
+
+            payload["device_id"] = device_id
+
+        return self._request(
+
+            "POST",
+
+            "/api/v1/apps/prepare-device",
+
+            payload,
+
+            result_key="result",
+
+            request_timeout_seconds=max(
+
+                self.timeout_seconds,
+
+                float(
+
+                    payload.get(
+
+                        "options",
+
+                        {},
+
+                    ).get(
+
+                        "boot_timeout_seconds",
+
+                        300,
+
+                    )
+
+                ) + 60,
+
+            ),
+
+        )
+
+    def open_application(
+
+        self,
+
+        package_id: str,
+
+        *,
+
+        device_id: str | None = None,
+
+    ) -> JsonObject:
+
+        payload = {"package_id": package_id}
+
+        if device_id:
+
+            payload["device_id"] = device_id
 
         return self._request(
 
@@ -241,7 +353,7 @@ class AppiumHTTPClient:
 
             "/api/v1/explorations/open",
 
-            {"package_id": package_id},
+            payload,
 
             result_key="result",
         )
@@ -404,9 +516,21 @@ class AppiumHTTPClient:
 
         result_key: str,
 
+        request_timeout_seconds: float | None = None,
+
     ) -> JsonObject:
 
-        body = self._request_envelope(method, path, payload)
+        body = self._request_envelope(
+
+            method,
+
+            path,
+
+            payload,
+
+            request_timeout_seconds=request_timeout_seconds,
+
+        )
 
         if not isinstance(body.get(result_key), dict):
 
@@ -430,6 +554,10 @@ class AppiumHTTPClient:
 
         payload: JsonObject,
 
+        *,
+
+        request_timeout_seconds: float | None = None,
+
     ) -> JsonObject:
 
         url = f"{self.base_url}{path}"
@@ -446,7 +574,15 @@ class AppiumHTTPClient:
 
                 headers=self.headers,
 
-                timeout=self.timeout_seconds,
+                timeout=(
+
+                    request_timeout_seconds
+
+                    if request_timeout_seconds is not None
+
+                    else self.timeout_seconds
+
+                ),
 
             )
 

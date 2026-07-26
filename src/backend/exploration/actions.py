@@ -292,13 +292,47 @@ class ExplorationActionManager:
                 "'package_id' must be a valid Android application ID, "
                 "for example 'com.example.app'."
             )
-        unexpected = sorted(set(payload) - {"package_id"})
+        device_id = payload.get("device_id")
+
+        if device_id is not None and (
+
+            not isinstance(device_id, str)
+
+            or not device_id.strip()
+
+        ):
+
+            raise ActionValidationError(
+
+                "'device_id' must be a non-empty string."
+
+            )
+
+        unexpected = sorted(
+
+            set(payload) - {"package_id", "device_id"}
+
+        )
         if unexpected:
             raise ActionValidationError(
                 f"Unsupported launch fields: {', '.join(unexpected)}."
             )
 
-        explorer = self.explorer_factory({})
+        explorer = self.explorer_factory(
+
+            {
+
+                "input": {
+
+                    "udid": device_id,
+
+                    "device_name": "Android",
+
+                }
+
+            }
+
+        )
         store = ExplorationStore(self.output_root)
         try:
             apk, session = explorer.start_package(package_id)
@@ -313,6 +347,7 @@ class ExplorationActionManager:
                 "schema_version": 1,
                 "status": "opened",
                 "package_id": package_id,
+                "device_id": session.udid,
                 "run_id": run_id,
                 "screen_id": captured.screen_id,
                 "screen_ref": {

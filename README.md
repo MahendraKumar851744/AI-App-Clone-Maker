@@ -84,6 +84,8 @@ POST   /api/v1/admin/runtime/start
 POST   /api/v1/admin/runtime/stop
 GET    /api/v1/admin/jobs/{job_id}
 POST   /api/v1/apps/install
+POST   /api/v1/apps/preflight
+POST   /api/v1/apps/prepare-device
 GET    /api/v1/apps/{package_id}
 DELETE /api/v1/apps/{package_id}
 POST   /api/v1/explorations/open

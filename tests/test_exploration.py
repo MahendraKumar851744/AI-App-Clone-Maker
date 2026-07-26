@@ -282,6 +282,7 @@ class ApkInspectorTests(unittest.TestCase):
                     "targetSdkVersion:'35'",
                     "application-label:'Example'",
                     "launchable-activity: name='example.app.MainActivity'",
+                    "uses-feature: name='android.hardware.camera'",
                     "native-code: 'arm64-v8a' 'armeabi-v7a'",
                 ]
             )
@@ -290,6 +291,10 @@ class ApkInspectorTests(unittest.TestCase):
         self.assertEqual(parsed["version_code"], "42")
         self.assertEqual(parsed["launch_activity"], "example.app.MainActivity")
         self.assertEqual(parsed["native_abis"], ["arm64-v8a", "armeabi-v7a"])
+        self.assertEqual(
+            parsed["required_features"],
+            ["android.hardware.camera"],
+        )
 
     def test_parses_adb_insets_and_system_ui_flags(self):
         parsed = AdbSystemProbe.parse_insets(
@@ -406,15 +411,27 @@ class MilestoneOneTests(unittest.TestCase):
                 ),
             )
             explorer._require_server = lambda: None
+            launch_documents = []
             manager = ExplorationActionManager(
                 Path(directory) / "artifacts",
-                explorer_factory=lambda _document: explorer,
+                explorer_factory=lambda document: (
+                    launch_documents.append(document) or explorer
+                ),
             )
             try:
-                result = manager.launch({"package_id": "example.app"})
+                result = manager.launch(
+                    {
+                        "package_id": "example.app",
+                        "device_id": "emulator-5556",
+                    }
+                )
 
                 self.assertEqual(result["status"], "opened")
                 self.assertEqual(result["package_id"], "example.app")
+                self.assertEqual(
+                    launch_documents[0]["input"]["udid"],
+                    "emulator-5556",
+                )
                 self.assertEqual(
                     result["screen_ref"],
                     {

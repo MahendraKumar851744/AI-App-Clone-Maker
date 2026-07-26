@@ -152,9 +152,56 @@ class FakeRuntimeClient:
         self.app = installed_app
         self.install_calls = []
         self.open_calls = []
+        self.open_device_ids = []
         self.context_calls = []
         self.action_calls = []
+        self.preflight_calls = []
+        self.prepare_device_calls = []
         self.contexts = contexts or {"screen_1": "# Current Screen"}
+
+    def preflight_application(
+        self,
+        *,
+        apk_path,
+        expected_package_id,
+    ):
+        self.preflight_calls.append(
+            {
+                "apk_path": apk_path,
+                "expected_package_id": expected_package_id,
+            }
+        )
+        return {
+            "status": "inspected",
+            "requirements": {
+                "native_abis": ["armeabi-v7a"],
+                "minimum_api_level": 23,
+            },
+        }
+
+    def prepare_application_device(
+        self,
+        *,
+        apk_path,
+        expected_package_id,
+        device_id,
+        options,
+    ):
+        self.prepare_device_calls.append(
+            {
+                "apk_path": apk_path,
+                "expected_package_id": expected_package_id,
+                "device_id": device_id,
+                "options": options,
+            }
+        )
+        return {
+            "status": "ready",
+            "device_id": device_id or "emulator-5554",
+            "device_selection": {
+                "verification": {"verified": True},
+            },
+        }
 
     def runtime_status(self):
         if len(self.statuses) > 1:
@@ -199,12 +246,14 @@ class FakeRuntimeClient:
         }
         return {"status": "installed", **self.app}
 
-    def open_application(self, package_id):
+    def open_application(self, package_id, *, device_id=None):
         self.open_calls.append(package_id)
+        self.open_device_ids.append(device_id)
         return {
             "run_id": "run_123",
             "screen_id": "screen_1",
             "package_id": package_id,
+            "device_id": device_id,
             "screen": {
                 "fingerprint": "fingerprint_1",
                 "package": package_id,
@@ -266,6 +315,8 @@ class InitializeAppiumWorkflowTests(unittest.TestCase):
         self.assertEqual(result["provisioning"], "reused")
         self.assertEqual(result["startup"], "reused")
         self.assertEqual(result["iterations"], 1)
+        self.assertEqual(result["device_id"], "emulator-5554")
+        self.assertEqual(client.open_device_ids, ["emulator-5554"])
         self.assertEqual(result["graph"]["coverage"]["screens_discovered"], 1)
         self.assertEqual(result["knowledge_box"]["app_summary"], "A test application")
         self.assertEqual(client.action_calls, [])

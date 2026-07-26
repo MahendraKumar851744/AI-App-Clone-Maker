@@ -12,8 +12,9 @@ It is intentionally separate from:
 - Screen-context export
 - Monitored UI actions
 
-The target device must already be booted and compatible. The APK must already
-exist on the backend host inside an approved APK directory.
+The APK must already exist on the backend host inside an approved APK
+directory. The preflight and device-preparation endpoints can automatically
+reuse, start, or provision a compatible device before installation.
 
 ## Administrative access
 
@@ -51,6 +52,72 @@ create_app(
 Every requested path is fully resolved before validation. Relative traversal
 and symlink targets outside approved roots are rejected.
 
+## Inspect APK runtime requirements
+
+```http
+POST /api/v1/apps/preflight
+Content-Type: application/json
+```
+
+```json
+{
+  "apk_path": "C:\\approved-apps\\application.apk",
+  "expected_package_id": "com.example.application"
+}
+```
+
+Preflight uses `aapt` and `zipalign` to derive:
+
+- Package and launch activity
+- Minimum and target API levels
+- Packaged native ABIs
+- Whether the APK is ABI-independent
+- Native-library compatibility with 16 KB page-size devices
+
+It inventories every connected device and configured AVD. Connected devices
+are evaluated from their actual ADB-reported API, ABI list, boot state, and
+page size. AVDs are only static candidates until they boot and pass the same
+ADB verification.
+
+## Select, start, or provision a compatible device
+
+```http
+POST /api/v1/apps/prepare-device
+Content-Type: application/json
+```
+
+```json
+{
+  "apk_path": "C:\\approved-apps\\application.apk",
+  "expected_package_id": "com.example.application",
+  "device_id": null,
+  "options": {
+    "auto_start_avd": true,
+    "allow_provision": true,
+    "boot_timeout_seconds": 300
+  }
+}
+```
+
+Selection follows this deterministic order:
+
+1. Validate an explicitly requested connected device.
+2. Reuse the best compatible connected device.
+3. Start configured AVD candidates in ranked order.
+4. Probe each booted candidate and reject it if its advertised runtime
+   capabilities do not satisfy the APK.
+5. Provision a deterministic AVD profile when enabled and no existing
+   candidate succeeds.
+6. Return the verified device ID and evidence used for the decision.
+
+Possible native translation is never assumed to work from an AVD name alone.
+The booted guest must advertise a matching ABI in
+`ro.product.cpu.abilist`.
+
+Automatic provisioning does not implicitly accept Android SDK licenses.
+Licenses must already have been accepted through the reviewed runtime
+bootstrap.
+
 ## Install an APK
 
 ```http
@@ -67,8 +134,9 @@ Content-Type: application/json
 }
 ```
 
-`device_id` is optional. When omitted, the first booted device compatible with
-the pinned runtime profile is selected.
+`device_id` is optional for the low-level installation endpoint. The complete
+workflow always supplies the device returned by `prepare-device`, ensuring
+inspection, installation, and Appium execution use the same target.
 
 Required fields:
 
@@ -110,8 +178,8 @@ For deterministic first-launch exploration, use `clean`.
 3. Inspect APK metadata and SHA-256 with `aapt`.
 4. Derive the real package ID from the APK.
 5. Compare it to `expected_package_id`.
-6. Select a booted ABI-compatible device.
-7. Check APK native ABI compatibility.
+6. Select the previously prepared device.
+7. Reverify boot state, API level, native ABI, and page-size compatibility.
 8. Inspect the previous installation and version.
 9. Close relevant live exploration sessions when replacement is allowed.
 10. Uninstall first when mode is `clean`.
@@ -234,8 +302,10 @@ It does not delete the source APK or existing exploration evidence.
 ```text
 POST admin/runtime/provision -> poll job
 POST admin/runtime/start     -> poll job
+POST apps/preflight          -> APK requirements + compatibility inventory
+POST apps/prepare-device     -> verified device_id
 POST apps/install            -> clean verified installation
-POST explorations/open       -> run_id + screen_id
+POST explorations/open       -> same device_id + run_id + screen_id
 POST explorations/context    -> LLM-ready screen
 POST explorations/{run_id}/actions
 DELETE apps/{package_id}     -> explicit optional cleanup

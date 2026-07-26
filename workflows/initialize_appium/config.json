@@ -19,11 +19,16 @@
     }
   },
   "workflow": {
-    "apk_path": "assets/apps/message.apk",
-    "expected_package_id": "message.chat.text.messaging.sms",
+    "apk_path": "assets/apps/7X_Get_Daily_Diamonds.apk",
+    "expected_package_id": "com.ffskintool.emotesffskin",
     "objective": "Exhaustively explore every reachable screen, control, state, feature, workflow, validation path, system interaction, and failure/recovery behavior in the target app.",
     "max_iterations": 25,
     "device_id": null,
+    "device_selection": {
+      "auto_start_avd": true,
+      "allow_provision": true,
+      "boot_timeout_seconds": 300
+    },
     "memory": {
       "context_budget_characters": 55000,
       "summarize_after_changes": 6
