@@ -1,159 +1,287 @@
 from __future__ import annotations
 
-import hashlib
 import io
-import json
+
 import os
+
 import re
-import subprocess
+
+import json
+
 import time
-from pathlib import Path
-from typing import Any, Callable
-from xml.etree import ElementTree
+
+import hashlib
 
 import requests
+
+import subprocess
+
+from pathlib import Path
+
+from typing import Any, Callable
+
 from PIL import Image, ImageStat
+
+from xml.etree import ElementTree
 
 from backend.exploration.models import ApkMetadata, JsonObject, ScreenCapture, SessionInfo
 
 
-TRUE_VALUES = {"true", "1", "yes"}
 SYSTEM_PACKAGES = {
-    "android",
-    "com.android.permissioncontroller",
-    "com.android.systemui",
-    "com.google.android.permissioncontroller",
-}
-ANDROID_ABIS = {
-    "armeabi",
-    "armeabi-v7a",
-    "arm64-v8a",
-    "x86",
-    "x86_64",
-    "mips",
-    "mips64",
-    "riscv64",
-}
-BOUNDS_PATTERN = re.compile(
-    r"^\[(?P<left>-?\d+),(?P<top>-?\d+)\]"
-    r"\[(?P<right>-?\d+),(?P<bottom>-?\d+)\]$"
-)
 
+    "android",
+
+    "com.android.permissioncontroller",
+
+    "com.android.systemui",
+
+    "com.google.android.permissioncontroller",
+
+}
+
+ANDROID_ABIS = {
+
+    "armeabi",
+
+    "armeabi-v7a",
+
+    "arm64-v8a",
+
+    "x86",
+
+    "x86_64",
+
+    "mips",
+
+    "mips64",
+
+    "riscv64",
+
+}
+
+
+TRUE_VALUES = {"true", "1", "yes"}
 
 def _as_bool(value: str | None) -> bool:
+
     return (value or "").strip().lower() in TRUE_VALUES
 
 
+BOUNDS_PATTERN = re.compile(
+
+    r"^\[(?P<left>-?\d+),(?P<top>-?\d+)\]"
+
+    r"\[(?P<right>-?\d+),(?P<bottom>-?\d+)\]$"
+
+)
+
 def _bounds(value: str | None) -> JsonObject | None:
+
     match = BOUNDS_PATTERN.match(value or "")
+
     if not match:
+
         return None
+
     bounds = {name: int(number) for name, number in match.groupdict().items()}
+
     return {
+
         **bounds,
+
         "width": bounds["right"] - bounds["left"],
+
         "height": bounds["bottom"] - bounds["top"],
+
         "center": {
+
             "x": (bounds["left"] + bounds["right"]) // 2,
+
             "y": (bounds["top"] + bounds["bottom"]) // 2,
+
         },
+
     }
 
 
 def parse_hierarchy(
+
     xml_source: str,
+
     *,
+
     app_package: str | None = None,
+
 ) -> list[JsonObject]:
+
     """Flatten a UiAutomator hierarchy into stable, evidence-rich element records."""
+
     root = ElementTree.fromstring(xml_source)
+
     records: list[JsonObject] = []
 
     def visit(node: ElementTree.Element, xpath: str, depth: int) -> None:
+
         attributes = dict(node.attrib)
+
         class_name = attributes.get("class", node.tag)
+
         package = attributes.get("package", "")
+
         number = len(records) + 1
+
         if not app_package or package == app_package:
+
             source = "app"
+
         elif package in SYSTEM_PACKAGES or "permissioncontroller" in package:
+
             source = "system"
+
         elif package:
+
             source = "external"
+
         else:
+
             source = "unknown"
+
         record: JsonObject = {
+
             "id": f"element_{number:04d}",
+
             "number": number,
+
             "depth": depth,
+
             "xpath": xpath,
+
             "class": class_name,
+
             "package": package,
+
             "source": source,
+
             "resource_id": attributes.get("resource-id", ""),
+
             "text": attributes.get("text", ""),
+
             "content_description": attributes.get("content-desc", ""),
+
             "bounds": _bounds(attributes.get("bounds")),
+
             "bounds_raw": attributes.get("bounds", ""),
+
         }
 
         boolean_attributes = (
+
             "clickable",
+
             "long-clickable",
+
             "checkable",
+
             "checked",
+
             "enabled",
+
             "focusable",
+
             "focused",
+
             "scrollable",
+
             "selected",
+
             "password",
+
             "displayed",
+
         )
+
         for name in boolean_attributes:
+
             record[name.replace("-", "_")] = _as_bool(attributes.get(name))
 
         editable = class_name.endswith(("EditText", "AutoCompleteTextView"))
+
         record["editable"] = editable
+
         if record["clickable"]:
+
             record["interaction"] = "tap"
+
         elif record["long_clickable"]:
+
             record["interaction"] = "long_press"
+
         elif record["scrollable"]:
+
             record["interaction"] = "scroll"
+
         elif record["checkable"]:
+
             record["interaction"] = "toggle"
+
         elif editable:
+
             record["interaction"] = "type_text"
+
         else:
+
             record["interaction"] = None
 
         known_keys = {
+
             "class",
+
             "package",
+
             "resource-id",
+
             "text",
+
             "content-desc",
+
             "bounds",
+
             *boolean_attributes,
+
         }
+
         record["extra_attributes"] = {
+
             key: value for key, value in attributes.items() if key not in known_keys
+
         }
+
         records.append(record)
 
         sibling_counts: dict[str, int] = {}
+
         for child in node:
+
             child_class = child.attrib.get("class", child.tag)
+
             sibling_counts[child_class] = sibling_counts.get(child_class, 0) + 1
+
             visit(
+
                 child,
+
                 f"{xpath}/{child_class}[{sibling_counts[child_class]}]",
+
                 depth + 1,
+
             )
 
+
+
     root_class = root.attrib.get("class", root.tag)
+
     visit(root, f"/{root_class}[1]", 0)
+
     return records
 
 
@@ -654,42 +782,75 @@ class AdbSystemProbe:
 
 
 class AppiumExplorer:
+
     """Deterministic Appium boundary for starting and observing one Android app."""
 
     def __init__(
+
         self,
+
         *,
+
         server_url: str = "http://127.0.0.1:4723",
+
         device_name: str = "Android",
+
         udid: str | None = None,
+
         keep_data: bool = False,
+
         stability_timeout: float = 15.0,
+
         stability_interval: float = 0.5,
+
         inspector: ApkInspector | None = None,
+
         system_probe: AdbSystemProbe | None = None,
+
         driver_factory: Callable[[str, JsonObject], Any] | None = None,
+
     ) -> None:
+
         self.server_url = server_url.rstrip("/")
+
         self.device_name = device_name
+
         self.udid = udid
+
         self.keep_data = keep_data
+
         self.stability_timeout = stability_timeout
+
         self.stability_interval = stability_interval
+
         self.inspector = inspector or ApkInspector()
+
         self.system_probe = system_probe or AdbSystemProbe()
+
         self.driver_factory = driver_factory
+
         self.driver: Any | None = None
+
         self.apk: ApkMetadata | None = None
+
         self.session: SessionInfo | None = None
+
         self.launch_source = "apk"
 
     def start(self, apk_path: str | Path) -> tuple[ApkMetadata, SessionInfo]:
+
         self.launch_source = "apk"
+
         self.apk = self.inspector.inspect(apk_path)
+
         self._require_server()
+
         capabilities = self._capabilities(self.apk)
+
         self._create_session(capabilities)
+
         self._wait_until_stable()
+
         return self.apk, self.session
 
     def start_package(self, package_id: str) -> tuple[ApkMetadata, SessionInfo]:
